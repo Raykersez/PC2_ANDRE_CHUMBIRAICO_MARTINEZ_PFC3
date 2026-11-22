@@ -189,6 +189,24 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
     if (!application) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente en tu cuenta.');
     res.json({ application });
   });
+  app.post('/api/applications/:code/decision', requireUser, json, (req, res) => {
+    if (req.user.role !== 'staff') throw new ApiError(403, 'EVALUATOR_REQUIRED', 'Solo el evaluador municipal puede resolver solicitudes.');
+    const { decision, reviewed } = req.body ?? {};
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (decision !== 'approved' && decision !== 'observed') {
+      throw new ApiError(400, 'INVALID_FIELDS', 'Selecciona Aprobar u Observar.', { decision: 'Selecciona una decisión.' });
+    }
+    if (decision === 'approved' && reviewed !== true) {
+      throw new ApiError(400, 'INVALID_FIELDS', 'Confirma la revisión de los requisitos.', { reviewed: 'Confirma que los documentos cumplen los requisitos.' });
+    }
+    if (decision === 'observed' && (!reason || reason.length > 1000)) {
+      throw new ApiError(400, 'INVALID_FIELDS', 'Indica qué debe corregir el comerciante.', { reason: 'Escribe un motivo de hasta 1000 caracteres.' });
+    }
+    const { application, resolved } = store.resolveApplication(req.params.code.toUpperCase(), req.user, decision, decision === 'observed' ? reason : null);
+    if (!application) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente.');
+    if (!resolved) throw new ApiError(409, 'ALREADY_RESOLVED', 'Este expediente ya fue resuelto. Recarga su estado para ver la decisión.');
+    res.json({ application });
+  });
   app.get('/api/applications/:code/attachments/:kind', requireUser, (req, res) => {
     const attachment = store.findAttachment(req.params.code.toUpperCase(), req.params.kind, req.user);
     if (!attachment) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese documento en tu cuenta.');
