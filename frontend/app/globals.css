@@ -100,6 +100,13 @@ form .button { justify-self: start; margin-top: 3px; }
 .credential-panel h3 { margin: 0 0 12px; }
 .stevedore-qr { display: block; max-width: 100%; height: auto; border-radius: var(--md-radius-small); }
 .validation-feedback { margin-top: 16px; }
+.tariff-catalogue { margin-top: 20px; }
+.tariff-catalogue > .field { max-width: 28rem; }
+.tariff-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; list-style: none; margin: 18px 0 0; padding: 0; }
+.tariff-list li { padding: 18px; background: var(--md-primary-container); color: var(--md-on-primary-container); overflow-wrap: anywhere; }
+.tariff-list h3 { margin: 0 0 8px; }
+.tariff-list strong { font-size: 1.4rem; }
+.tariff-list .secondary { color: inherit; }
 .hint, .field-error { font-size: .85rem; }
 .hint { color: var(--md-on-surface-variant); }
 .field-error { color: var(--md-error); }

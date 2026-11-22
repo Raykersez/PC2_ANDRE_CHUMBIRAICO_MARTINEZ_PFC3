@@ -90,6 +90,16 @@ jobs:
           build-mode: none
       - uses: github/codeql-action/analyze@v4
 
+  dependency-review:
+    name: Revisión de dependencias
+    if: github.event_name == 'pull_request' && (github.event.repository.private == false || vars.DEPENDENCY_REVIEW_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@v4
+
   deploy:
     name: Desplegar en Azure
     if: github.event_name == 'push' && vars.AZURE_DEPLOY_ENABLED == 'true'

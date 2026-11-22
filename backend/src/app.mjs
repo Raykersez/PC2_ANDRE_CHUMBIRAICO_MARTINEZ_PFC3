@@ -4,6 +4,7 @@ import express from 'express';
 import QRCode from 'qrcode';
 import { rateLimit } from 'express-rate-limit';
 import { categories, stallCodePattern } from './store.mjs';
+import { isCalendarDate, limaDate } from './calendar.mjs';
 
 const deriveKey = promisify(scrypt);
 const sessionMs = 8 * 60 * 60 * 1000;
@@ -77,10 +78,7 @@ function operationDetails(body) {
   const { date, quantity, unit, submissionId } = body ?? {};
   const product = typeof body?.product === 'string' ? body.product.trim() : '';
   const fields = {};
-  const validDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
-    && !date.startsWith('0000') && Number.isFinite(Date.parse(date))
-    && new Date(date).toISOString().slice(0, 10) === date;
-  if (!validDate) fields.date = 'Ingresa una fecha válida.';
+  if (!isCalendarDate(date)) fields.date = 'Ingresa una fecha válida.';
   if (!product || product.length > 120) fields.product = 'Ingresa un producto de hasta 120 caracteres.';
   if (!Number.isFinite(quantity) || quantity <= 0) fields.quantity = 'Ingresa una cantidad mayor que cero.';
   if (!operationUnits.some((option) => option.value === unit)) fields.unit = 'Selecciona una unidad del catálogo.';
@@ -210,6 +208,10 @@ export function createApp(store, { origin = 'http://localhost:3000', now = Date.
   }
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+  app.get('/api/stevedore-tariffs', (_req, res) => {
+    const asOf = limaDate(now());
+    res.json({ asOf, services: store.listStevedoreTariffs(asOf) });
+  });
   app.post('/api/contact', contactLimit, json, (req, res) => {
     const details = contactDetails(req.body);
     res.status(201).json({ reference: store.createContact(details) });

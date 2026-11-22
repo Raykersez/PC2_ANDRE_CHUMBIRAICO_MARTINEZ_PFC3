@@ -1,4 +1,5 @@
 import { categories, openStore, stallCodePattern } from './store.mjs';
+import { parseTariffCommand } from './tariffs.mjs';
 
 const [action, ...args] = process.argv.slice(2);
 const [value, rawLocation, category] = args;
@@ -9,15 +10,25 @@ const adminEmail = action === '--administrador' && args.length === 1 ? value.tri
 const certifierEmail = action === '--certificador' && args.length === 1 ? value.trim().toLowerCase() : '';
 const controllerEmail = action === '--control-estibaje' && args.length === 1 ? value.trim().toLowerCase() : '';
 const evaluatorEmail = action && !action.startsWith('--') && !args.length ? action.trim().toLowerCase() : '';
-if (!validStall && !adminEmail && !certifierEmail && !controllerEmail && !evaluatorEmail) {
+const tariff = parseTariffCommand(action, args);
+if (!validStall && !adminEmail && !certifierEmail && !controllerEmail && !evaluatorEmail && !tariff) {
   console.error('Uso: npm run staff -- correo | --administrador correo | --certificador correo | --control-estibaje correo | --puesto código "ubicación" "rubro"');
   console.error('Rubros: ' + categories.join(', '));
+  console.error('Tarifario: --servicio código "nombre" | --tarifa código monto-en-céntimos "unidad" desde [hasta]');
   process.exit(1);
 }
 
 const store = openStore(process.env.DATABASE_FILE || '.data/mercaorden.sqlite');
 try {
-  if (validStall && store.addStall(stall)) console.log('Puesto incorporado al catálogo.');
+  if (tariff) {
+    const saved = tariff.type === 'service' ? store.addStevedoreService(tariff) : store.addStevedoreTariff(tariff);
+    if (saved) console.log(tariff.type === 'service' ? 'Servicio incorporado al catálogo.' : 'Versión de tarifa publicada.');
+    else {
+      console.error(tariff.type === 'service' ? 'Ya existe un servicio con ese código.' :
+        'El servicio no existe o ya hay una tarifa publicada con esa fecha de inicio.');
+      process.exitCode = 1;
+    }
+  } else if (validStall && store.addStall(stall)) console.log('Puesto incorporado al catálogo.');
   else if (adminEmail && store.grantMarketAdmin(adminEmail)) console.log('Cuenta habilitada como administradora del mercado.');
   else if (certifierEmail && store.grantStevedoreRole(certifierEmail, 'certifier')) console.log('Cuenta habilitada como certificadora municipal.');
   else if (controllerEmail && store.grantStevedoreRole(controllerEmail, 'controller')) console.log('Cuenta habilitada para el control de credenciales.');

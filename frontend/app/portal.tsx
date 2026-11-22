@@ -216,6 +216,7 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
           <nav aria-label="Navegación principal">
             <a className="nav-link" href={stevedores ? '/empadronamiento' : '#tramite'}>Empadronamiento</a>
             <a className="nav-link" href={stevedores ? '#tramite' : '/estibadores'}>Estibadores</a>
+            {stevedores && <a className="nav-link" href="/estibadores/tarifario">Tarifario</a>}
             {!stevedores && <a className="nav-link" href="#expedientes">Mis solicitudes</a>}
             {!stevedores && user?.role === 'merchant' && <a className="nav-link" href="#operaciones">Operaciones</a>}
           </nav>
