@@ -2,13 +2,27 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
+import { categories, stallCodePattern } from './store.mjs';
 
 const deriveKey = promisify(scrypt);
 const sessionMs = 8 * 60 * 60 * 1000;
 const cookieName = 'mercaorden_session';
 const maxFileSize = 2 * 1024 * 1024;
-const categories = ['Frutas', 'Verduras', 'Tubérculos', 'Abarrotes', 'Otros alimentos'];
 const contactTopics = ['application', 'access', 'other'];
+const operationUnits = [
+  { value: 'kg', label: 'Kilogramos (kg)' },
+  { value: 't', label: 'Toneladas (t)' },
+  { value: 'unidad', label: 'Unidades' },
+  { value: 'caja', label: 'Cajas' },
+  { value: 'saco', label: 'Sacos' },
+];
+const assignmentErrors = {
+  APPLICATION_NOT_FOUND: [404, 'No encontramos ese expediente.'],
+  APPROVAL_REQUIRED: [409, 'Solo puedes asignar un puesto a una solicitud aprobada.'],
+  MERCHANT_ASSIGNED: [409, 'Este comerciante ya tiene un puesto vigente.'],
+  STALL_UNAVAILABLE: [409, 'El puesto ya no está disponible. Actualiza la lista y elige otro.'],
+  STALL_INCOMPATIBLE: [409, 'El puesto no es compatible con el rubro del comerciante.'],
+};
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 
 const fileTypes = {
@@ -54,6 +68,24 @@ function contactDetails(body) {
   if (message.length < 10 || message.length > 1000) fields.message = 'Escribe entre 10 y 1000 caracteres.';
   if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos marcados.', fields);
   return { email, topic, message };
+}
+
+function operationDetails(body) {
+  const { date, quantity, unit, submissionId } = body ?? {};
+  const product = typeof body?.product === 'string' ? body.product.trim() : '';
+  const fields = {};
+  const validDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    && !date.startsWith('0000') && Number.isFinite(Date.parse(date))
+    && new Date(date).toISOString().slice(0, 10) === date;
+  if (!validDate) fields.date = 'Ingresa una fecha válida.';
+  if (!product || product.length > 120) fields.product = 'Ingresa un producto de hasta 120 caracteres.';
+  if (!Number.isFinite(quantity) || quantity <= 0) fields.quantity = 'Ingresa una cantidad mayor que cero.';
+  if (!operationUnits.some((option) => option.value === unit)) fields.unit = 'Selecciona una unidad del catálogo.';
+  if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos marcados.', fields);
+  if (typeof submissionId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(submissionId)) {
+    throw new ApiError(400, 'INVALID_SUBMISSION', 'Recarga el formulario y vuelve a intentar.');
+  }
+  return { submissionId, date, product, quantity, unit };
 }
 
 async function passwordHash(password, salt = randomBytes(16).toString('hex')) {
@@ -133,6 +165,18 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
     req.user = user;
     next();
   };
+  const requireMarketAdmin = (req, _res, next) => {
+    if (req.user.role !== 'market_admin') {
+      return next(new ApiError(403, 'MARKET_ADMIN_REQUIRED', 'Solo el administrador del mercado puede asignar puestos.'));
+    }
+    next();
+  };
+
+  function checkAssignment(result) {
+    if (!result.error) return;
+    const [status, message] = assignmentErrors[result.error];
+    throw new ApiError(status, result.error, message);
+  }
 
   function setSession(req, res, user, status) {
     const oldToken = sessionToken(req);
@@ -171,6 +215,27 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
     res.clearCookie(cookieName, cookieOptions).status(204).end();
   });
 
+  function requireMerchant(req, _res, next) {
+    if (req.user.role !== 'merchant') {
+      return next(new ApiError(403, 'MERCHANT_REQUIRED', 'Solo los comerciantes pueden registrar sus operaciones.'));
+    }
+    next();
+  }
+
+  app.get('/api/operations', requireUser, requireMerchant, (req, res) => {
+    res.json({ ...store.listOperations(req.user.id), units: operationUnits });
+  });
+  app.post('/api/operations', requireUser, requireMerchant, json, (req, res) => {
+    const result = store.createOperation(req.user.id, operationDetails(req.body));
+    if (result.error === 'ACTIVE_STALL_REQUIRED') {
+      throw new ApiError(403, result.error, 'Necesitas un puesto vigente para registrar operaciones.');
+    }
+    if (result.error === 'SUBMISSION_CONFLICT') {
+      throw new ApiError(409, result.error, 'Este envío ya se usó con otros datos. Actualiza el historial antes de reintentar.');
+    }
+    res.status(result.created ? 201 : 200).json({ operation: result.operation });
+  });
+
   app.get('/api/applications', requireUser, (req, res) => res.json({ applications: store.listApplications(req.user.id) }));
   app.post('/api/applications', requireUser, express.raw({ type: 'multipart/form-data', limit: '5mb' }), async (req, res) => {
     if (req.user.role !== 'merchant') throw new ApiError(403, 'MERCHANT_REQUIRED', 'Solo los comerciantes pueden iniciar una solicitud.');
@@ -187,6 +252,38 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
   app.get('/api/applications/:code', requireUser, (req, res) => {
     const application = store.findApplication(req.params.code.toUpperCase(), req.user);
     if (!application) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente en tu cuenta.');
+    res.json({ application });
+  });
+  app.get('/api/applications/:code/stalls', requireUser, requireMarketAdmin, (req, res) => {
+    const result = store.listAvailableStalls(req.params.code.toUpperCase());
+    checkAssignment(result);
+    res.json(result);
+  });
+  app.post('/api/applications/:code/assignment', requireUser, requireMarketAdmin, json, (req, res) => {
+    const stallCode = typeof req.body?.stallCode === 'string' ? req.body.stallCode : '';
+    if (!stallCodePattern.test(stallCode)) {
+      throw new ApiError(400, 'INVALID_FIELDS', 'Selecciona un puesto disponible.', { stallCode: 'Selecciona un puesto.' });
+    }
+    const result = store.assignStall(req.params.code.toUpperCase(), stallCode, req.user.id);
+    checkAssignment(result);
+    res.status(201).json(result);
+  });
+  app.post('/api/applications/:code/decision', requireUser, json, (req, res) => {
+    if (req.user.role !== 'staff') throw new ApiError(403, 'EVALUATOR_REQUIRED', 'Solo el evaluador municipal puede resolver solicitudes.');
+    const { decision, reviewed } = req.body ?? {};
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (decision !== 'approved' && decision !== 'observed') {
+      throw new ApiError(400, 'INVALID_FIELDS', 'Selecciona Aprobar u Observar.', { decision: 'Selecciona una decisión.' });
+    }
+    if (decision === 'approved' && reviewed !== true) {
+      throw new ApiError(400, 'INVALID_FIELDS', 'Confirma la revisión de los requisitos.', { reviewed: 'Confirma que los documentos cumplen los requisitos.' });
+    }
+    if (decision === 'observed' && (!reason || reason.length > 1000)) {
+      throw new ApiError(400, 'INVALID_FIELDS', 'Indica qué debe corregir el comerciante.', { reason: 'Escribe un motivo de hasta 1000 caracteres.' });
+    }
+    const { application, resolved } = store.resolveApplication(req.params.code.toUpperCase(), req.user, decision, decision === 'observed' ? reason : null);
+    if (!application) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente.');
+    if (!resolved) throw new ApiError(409, 'ALREADY_RESOLVED', 'Este expediente ya fue resuelto. Recarga su estado para ver la decisión.');
     res.json({ application });
   });
   app.get('/api/applications/:code/attachments/:kind', requireUser, (req, res) => {

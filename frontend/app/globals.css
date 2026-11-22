@@ -25,7 +25,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; line-height: 1.55; }
 a { color: inherit; text-decoration: none; }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 :focus-visible { outline: 3px solid var(--md-primary); outline-offset: 3px; }
 h1, h2, p { margin: 0; }
 h2 { font-weight: 690; line-height: 1.2; letter-spacing: -.035em; }
@@ -82,6 +82,19 @@ form .button { justify-self: start; margin-top: 3px; }
 .field input[type='file'] { padding: 6px; cursor: pointer; }
 .field input::file-selector-button { border: 0; background: var(--md-primary-container); color: var(--md-on-primary-container); border-radius: var(--md-radius-full); padding: 6px 11px; font-weight: 650; margin-inline-end: 6px; cursor: pointer; }
 .field [aria-invalid='true'] { border-color: var(--md-error); }
+.field textarea { width: 100%; min-width: 0; min-height: 104px; padding: 9px 12px; border: 1px solid var(--md-outline-variant); border-radius: var(--md-radius-small); background: var(--md-surface); color: var(--md-on-surface); resize: vertical; }
+.review-check { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.review-check input { width: 20px; height: 20px; accent-color: var(--md-primary); }
+.review-check .field-error { flex-basis: 100%; }
+.main-panel form h3 { margin: 0; }
+.commercial-operations { margin-top: 24px; }
+.commercial-operations > .feedback { margin: 12px 0 0; }
+.commercial-operations .button.outline { margin-top: 12px; }
+.operation-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(20px, 4vw, 44px); margin-top: 20px; }
+.operation-columns form, .operation-columns h3 { margin-top: 0; }
+.operation-list { list-style: none; margin: 0; padding: 0; }
+.operation-list li { display: grid; padding: 8px 0; border-bottom: 1px solid var(--md-outline-variant); overflow-wrap: anywhere; }
+.operation-list span { color: var(--md-on-surface-variant); }
 .hint, .field-error { font-size: .85rem; }
 .hint { color: var(--md-on-surface-variant); }
 .field-error { color: var(--md-error); }
@@ -100,6 +113,7 @@ form .button { justify-self: start; margin-top: 3px; }
 .footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 22px; margin-top: 44px; border-top: 1px solid var(--md-outline-variant); color: var(--md-on-surface-variant); font-size: .9rem; }
 .footer .brand-mark { width: 32px; height: 32px; }
 @media (max-width: 760px) {
+  .operation-columns { grid-template-columns: 1fr; }
   .shell { width: min(100% - 32px, 580px); }
   .workspace { grid-template-columns: 1fr; }
   .top-content { flex-wrap: wrap; gap: 8px; padding-block: 10px; }

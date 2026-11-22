@@ -4,7 +4,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import { api, ApiFailure } from './api';
 import { Brand, Field } from './components';
+import { CommercialOperations } from './commercial-operations';
 import { ThemeSelect } from './theme-select';
+import { StallAssignment } from './stall-assignment';
 import type { Application, Fields, User } from './types';
 
 type AuthMode = 'signup' | 'login';
@@ -13,11 +15,15 @@ const fileFormats = '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png';
 const fileHint = 'PDF, JPG o PNG. Máximo 2 MB.';
 const categories = ['Frutas', 'Verduras', 'Tubérculos', 'Abarrotes', 'Otros alimentos'];
 const localDate = new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeZone: 'America/Lima' });
+const decisionDate = new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Lima' });
+const statusLabels = { pending: 'Pendiente de revisión', approved: 'Aprobada', observed: 'Observada' };
 
 export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
   const [user, setUser] = useState<User | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [receipt, setReceipt] = useState<Application | null>(null);
+  const [decision, setDecision] = useState('');
+  const [reloadRequired, setReloadRequired] = useState(false);
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -150,11 +156,22 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
   async function lookUp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const code = String(new FormData(event.currentTarget).get('code') ?? '').trim();
+    await loadReceipt(code);
+  }
+
+  function updateReceipt(application: Application) {
+    setReceipt(application);
+    setApplications((items) => items.map((item) => item.code === application.code ? application : item));
+    setDecision('');
+    setReloadRequired(false);
+  }
+
+  async function loadReceipt(code: string) {
     clearFeedback();
     setBusy(true);
     try {
       const result = await api<{ application: Application }>('/applications/' + encodeURIComponent(code));
-      setReceipt(result.application);
+      updateReceipt(result.application);
     } catch (error) {
       showError(error);
     } finally {
@@ -162,10 +179,25 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
     }
   }
 
-  function showReceipt(application: Application) {
+  async function saveDecision(event: FormEvent<HTMLFormElement>, code: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
     clearFeedback();
-    setReceipt(application);
-    document.getElementById('tramite')?.scrollIntoView();
+    setBusy(true);
+    try {
+      const result = await api<{ application: Application }>('/applications/' + encodeURIComponent(code) + '/decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, reason: form.get('reason'), reviewed: form.has('reviewed') }),
+      });
+      updateReceipt(result.application);
+      setNotice('Se registró la decisión del expediente.');
+    } catch (error) {
+      if (error instanceof ApiFailure && error.status === 409) setReloadRequired(true);
+      showError(error);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -177,6 +209,7 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
           <nav aria-label="Navegación principal">
             <a className="nav-link" href="#tramite">Empadronamiento</a>
             <a className="nav-link" href="#expedientes">Mis solicitudes</a>
+            {user?.role === 'merchant' && <a className="nav-link" href="#operaciones">Operaciones</a>}
           </nav>
           <div className="header-actions">
             <ThemeSelect />
@@ -226,21 +259,74 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
               </>
             ) : receipt ? (
               <>
-                <p className="status-chip">Pendiente de revisión</p>
-                <h2 id="form-title">Tu expediente</h2>
+                <p className="status-chip">{statusLabels[receipt.status]}</p>
+                <h2 id="form-title">{user.role === 'merchant' ? 'Mi expediente' : 'Expediente de empadronamiento'}</h2>
+                {user.role === 'merchant' && receipt.status === 'approved' && !receipt.assignment && (
+                  <p className="secondary">Tu solicitud fue aprobada. La administración del mercado aún debe asignarte un puesto.</p>
+                )}
                 <dl className="receipt">
                   <div><dt>Código de solicitud</dt><dd className="code">{receipt.code}</dd></div>
                   <div><dt>Solicitante</dt><dd>{receipt.name}</dd></div>
                   <div><dt>Rubro</dt><dd>{receipt.category}</dd></div>
                   <div><dt>Fecha de presentación</dt><dd>{localDate.format(new Date(receipt.createdAt))}</dd></div>
+                  {receipt.decision && <>
+                    <div><dt>Fecha de resolución (Lima)</dt><dd>{decisionDate.format(new Date(receipt.decision.decidedAt))}</dd></div>
+                    {receipt.decision.evaluatorId && <div><dt>ID del evaluador</dt><dd>{receipt.decision.evaluatorId}</dd></div>}
+                    {receipt.decision.reason && <div><dt>Qué debes corregir</dt><dd>{receipt.decision.reason}</dd></div>}
+                  </>}
+                  {receipt.assignment && <>
+                    <div><dt>{user.role === 'merchant' ? 'Puesto asignado' : 'Puesto ocupado'}</dt>
+                      <dd>{receipt.assignment.code} · {receipt.assignment.location}</dd></div>
+                    <div><dt>Fecha de asignación (Lima)</dt><dd>{decisionDate.format(new Date(receipt.assignment.assignedAt))}</dd></div>
+                  </>}
                 </dl>
-                <div className="receipt-actions">
+                {user.role !== 'market_admin' && <div className="receipt-actions">
                   <a className="button tonal" href={'/api/applications/' + receipt.code + '/attachments/identity'}>Descargar identificación</a>
                   <a className="button tonal" href={'/api/applications/' + receipt.code + '/attachments/support'}>Descargar sustento</a>
+                </div>}
+                {user.role === 'market_admin' && receipt.status === 'approved' && !receipt.assignment && (
+                  <StallAssignment key={receipt.code} code={receipt.code} busy={busy} setBusy={setBusy}
+                    onAssigned={(assignment) => {
+                      updateReceipt({ ...receipt, assignment });
+                      setNotice('El puesto quedó asignado al comerciante.');
+                    }} />
+                )}
+                {user.role === 'staff' && receipt.status === 'pending' && !reloadRequired && (
+                  <form onSubmit={(event) => saveDecision(event, receipt.code)}>
+                    <h3>Resolver solicitud</h3>
+                    <Field name="decision" label="Decisión" error={fields.decision}>
+                      <select id="decision" required value={decision} onChange={(event) => setDecision(event.target.value)}
+                        disabled={busy} aria-describedby="decision-hint">
+                        <option value="">Selecciona una decisión</option>
+                        <option value="approved">Aprobar</option>
+                        <option value="observed">Observar</option>
+                      </select>
+                    </Field>
+                    {decision === 'approved' && (
+                      <label className="review-check">
+                        <input type="checkbox" name="reviewed" required disabled={busy} aria-describedby="reviewed-hint" />
+                        <span>Verifiqué la identificación y el sustento comercial. Ambos cumplen los requisitos.</span>
+                        <span id="reviewed-hint" className="field-error">{fields.reviewed}</span>
+                      </label>
+                    )}
+                    {decision === 'observed' && (
+                      <Field name="reason" label="Motivo de la observación" error={fields.reason} helper="Indica qué documento falta o qué debe corregir el comerciante.">
+                        <textarea id="reason" name="reason" required maxLength={1000} rows={4}
+                          readOnly={busy} aria-invalid={Boolean(fields.reason)} aria-describedby="reason-hint" />
+                      </Field>
+                    )}
+                    <button className="button filled" disabled={busy}>{busy ? 'Guardando…' : 'Guardar decisión'}</button>
+                  </form>
+                )}
+                <div className="receipt-actions">
+                  {(reloadRequired || user.role === 'merchant' || (user.role === 'market_admin' && !receipt.assignment)) &&
+                    <button className="button outline" disabled={busy} onClick={() => loadReceipt(receipt.code)}>Recargar estado</button>}
+                  <button className="button outline" disabled={busy} onClick={() => { setReceipt(null); clearFeedback(); }}>
+                    {user.role === 'merchant' ? 'Volver al formulario' : 'Consultar otro expediente'}
+                  </button>
                 </div>
-                <button className="button outline" onClick={() => { setReceipt(null); clearFeedback(); }}>Volver al formulario</button>
               </>
-            ) : user.role === 'staff' ? (
+            ) : user.role !== 'merchant' ? (
               <>
                 <h2 id="form-title">Consultar expediente</h2>
                 <p className="secondary">Ingresa el código que recibió el comerciante.</p>
@@ -303,8 +389,11 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
               {applications.length ? (
                 <ul>{applications.map((application) => (
                   <li key={application.code}>
-                    <button className="record" type="button" onClick={() => showReceipt(application)}>
-                      <strong>{application.code}</strong><span>Pendiente de revisión</span>
+                    <button className="record" type="button" disabled={busy} onClick={() => {
+                      void loadReceipt(application.code);
+                      document.getElementById('tramite')?.focus();
+                    }}>
+                      <strong>{application.code}</strong><span>{statusLabels[application.status]}</span>
                     </button>
                   </li>
                 ))}</ul>
@@ -312,6 +401,7 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
             </section>
           </aside>
         </div>
+        {user?.role === 'merchant' && <CommercialOperations key={user.id} />}
       </main>
       <footer className="shell footer"><a href="/" aria-label="Inicio de MercaOrden"><Brand /></a><span>Formalización para mercados mayoristas</span></footer>
     </>

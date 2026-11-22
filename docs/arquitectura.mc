@@ -16,3 +16,10 @@ flowchart LR
 
 - La [landing pública](../frontend/app/page.tsx) presenta el sistema. [Empadronamiento](../frontend/app/empadronamiento/page.tsx) aloja CLP-5. Ambas rutas comparten tema, marca y estilos Material Design 3.
 - POST /api/contact valida correo, motivo y mensaje y guarda cada envío aceptado en contact_messages. La recepción se identifica con una referencia MC. La revisión se realiza desde SQLite con acceso administrativo. [CLP-25](epicas/CLP-1/CLP-25.mc)
+
+- Las resoluciones de [CLP-6](epicas/CLP-1/CLP-6.mc) actualizan el expediente y conservan la primera decisión en SQLite dentro de la misma transacción.
+
+- [CLP-7](epicas/CLP-1/CLP-7.mc) utiliza un catálogo de puestos. La existencia de una asignación determina la ocupación y SQLite protege la unicidad por puesto y comerciante.
+
+- En [CLP-18](epicas/CLP-1/CLP-18.mc), el expediente del titular incluye el motivo de observación o los datos de su puesto. La API comprueba identidad y titularidad antes de leer ese detalle.
+- [CLP-19](epicas/CLP-1/CLP-19.mc) vincula las operaciones a una asignación aprobada del comerciante y evita duplicados mediante una clave de envío única dentro de esa asignación.
