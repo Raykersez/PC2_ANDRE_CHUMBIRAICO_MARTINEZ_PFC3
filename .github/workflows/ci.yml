@@ -36,7 +36,15 @@ jobs:
       - if: github.event_name == 'push'
         run: node scripts/check-docs.mjs
       - run: npm ci
-      - run: npm test
+      - name: Ejecutar pruebas unitarias y de integración
+        run: npm test -w backend -- --test-reporter=spec --test-reporter=junit --test-reporter-destination=stdout --test-reporter-destination="${{ runner.temp }}/mercaorden-tests.xml"
+      - name: Publicar resultados de pruebas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-pruebas-unitarias-e-integracion
+          path: ${{ runner.temp }}/mercaorden-tests.xml
+          if-no-files-found: ignore
       - run: npm run build
 
   gitleaks:

@@ -2,6 +2,7 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { mountLogistics } from './logistics-api.mjs';
 import { mountServiceAssignments } from './service-assignments-api.mjs';
+import { mountSanitary } from './sanitary-api.mjs';
 import express from 'express';
 import QRCode from 'qrcode';
 import { rateLimit } from 'express-rate-limit';
@@ -412,6 +413,7 @@ export function createApp(store, { origin = 'http://localhost:3000', now = Date.
 
   mountLogistics(app, store, { ApiError, now, requireUser, json });
   mountServiceAssignments(app, store, { ApiError, now, requireUser, json });
+  mountSanitary(app, store, { ApiError, now, requireUser, json });
   app.use((_req, _res, next) => next(new ApiError(404, 'NOT_FOUND', 'No encontramos el recurso solicitado.')));
   app.use((error, _req, res, _next) => {
     if (error instanceof ApiError) {

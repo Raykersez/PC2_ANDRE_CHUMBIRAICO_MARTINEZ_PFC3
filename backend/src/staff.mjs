@@ -10,12 +10,14 @@ const adminEmail = action === '--administrador' && args.length === 1 ? value.tri
 const certifierEmail = action === '--certificador' && args.length === 1 ? value.trim().toLowerCase() : '';
 const controllerEmail = action === '--control-estibaje' && args.length === 1 ? value.trim().toLowerCase() : '';
 const coordinatorEmail = action === '--coordinar-estibaje' && args.length === 1 ? value.trim().toLowerCase() : '';
+const inspectorEmail = action === '--inspector-sanitario' && args.length === 1 ? value.trim().toLowerCase() : '';
 const evaluatorEmail = action && !action.startsWith('--') && !args.length ? action.trim().toLowerCase() : '';
 const tariff = parseTariffCommand(action, args);
-if (!validStall && !adminEmail && !certifierEmail && !controllerEmail && !coordinatorEmail && !evaluatorEmail && !tariff) {
+if (!validStall && !adminEmail && !certifierEmail && !controllerEmail && !coordinatorEmail && !inspectorEmail && !evaluatorEmail && !tariff) {
   console.error('Uso: npm run staff -- correo | --administrador correo | --certificador correo | --control-estibaje correo | --puesto código "ubicación" "rubro"');
   console.error('Rubros: ' + categories.join(', '));
   console.error('Coordinación: --coordinar-estibaje correo');
+  console.error('Fiscalización: --inspector-sanitario correo');
   console.error('Tarifario: --servicio código "nombre" | --tarifa código monto-en-céntimos "unidad" desde [hasta]');
   process.exit(1);
 }
@@ -35,6 +37,7 @@ try {
   else if (certifierEmail && store.grantStevedoreRole(certifierEmail, 'certifier')) console.log('Cuenta habilitada como certificadora municipal.');
   else if (controllerEmail && store.grantStevedoreRole(controllerEmail, 'controller')) console.log('Cuenta habilitada para el control de credenciales.');
   else if (coordinatorEmail && store.grantStevedoreRole(coordinatorEmail, 'coordinator')) console.log('Cuenta habilitada para coordinar el estibaje.');
+  else if (inspectorEmail && store.grantSanitaryRole(inspectorEmail, 'inspector')) console.log('Cuenta habilitada para inspección sanitaria.');
   else if (evaluatorEmail && store.promoteStaff(evaluatorEmail)) console.log('Cuenta autorizada para consultar expedientes.');
   else {
     console.error(validStall ? 'Ya existe un puesto con ese código.' : 'La cuenta aún no está registrada.');
