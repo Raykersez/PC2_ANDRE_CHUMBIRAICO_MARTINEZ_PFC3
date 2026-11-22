@@ -11,3 +11,5 @@
 GET /api/applications/:code/stalls lista puestos libres compatibles. POST /api/applications/:code/assignment confirma la asignación y devuelve 201.
 
 La vista del puesto para el titular corresponde a CLP-18. Integración a EP-01 y a main pendiente.
+
+[PR #4 hacia EP-01](https://github.com/Raykersez/PC2_ANDRE_CHUMBIRAICO_MARTINEZ_PFC3/pull/4).
