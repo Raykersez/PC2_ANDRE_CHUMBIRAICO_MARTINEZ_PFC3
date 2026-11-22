@@ -258,7 +258,10 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
             ) : receipt ? (
               <>
                 <p className="status-chip">{statusLabels[receipt.status]}</p>
-                <h2 id="form-title">{user.role === 'merchant' ? 'Tu expediente' : 'Expediente de empadronamiento'}</h2>
+                <h2 id="form-title">{user.role === 'merchant' ? 'Mi expediente' : 'Expediente de empadronamiento'}</h2>
+                {user.role === 'merchant' && receipt.status === 'approved' && !receipt.assignment && (
+                  <p className="secondary">Tu solicitud fue aprobada. La administración del mercado aún debe asignarte un puesto.</p>
+                )}
                 <dl className="receipt">
                   <div><dt>Código de solicitud</dt><dd className="code">{receipt.code}</dd></div>
                   <div><dt>Solicitante</dt><dd>{receipt.name}</dd></div>
@@ -270,7 +273,8 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
                     {receipt.decision.reason && <div><dt>Qué debes corregir</dt><dd>{receipt.decision.reason}</dd></div>}
                   </>}
                   {receipt.assignment && <>
-                    <div><dt>Puesto ocupado</dt><dd>{receipt.assignment.code} · {receipt.assignment.location}</dd></div>
+                    <div><dt>{user.role === 'merchant' ? 'Puesto asignado' : 'Puesto ocupado'}</dt>
+                      <dd>{receipt.assignment.code} · {receipt.assignment.location}</dd></div>
                     <div><dt>Fecha de asignación (Lima)</dt><dd>{decisionDate.format(new Date(receipt.assignment.assignedAt))}</dd></div>
                   </>}
                 </dl>
@@ -313,7 +317,7 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
                   </form>
                 )}
                 <div className="receipt-actions">
-                  {(reloadRequired || (user.role === 'market_admin' && !receipt.assignment)) &&
+                  {(reloadRequired || user.role === 'merchant' || (user.role === 'market_admin' && !receipt.assignment)) &&
                     <button className="button outline" disabled={busy} onClick={() => loadReceipt(receipt.code)}>Recargar estado</button>}
                   <button className="button outline" disabled={busy} onClick={() => { setReceipt(null); clearFeedback(); }}>
                     {user.role === 'merchant' ? 'Volver al formulario' : 'Consultar otro expediente'}

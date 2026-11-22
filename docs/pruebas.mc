@@ -22,3 +22,5 @@ La [prueba de contacto](../backend/test/contact.test.mjs) verifica rechazo de un
 La [prueba de CLP-6](../backend/test/decisions.test.mjs) cubre decisiones de personal autorizado, observaciones visibles para el titular y envíos simultáneos.
 
 La [prueba de CLP-7](../backend/test/assignments.test.mjs) verifica autorización, rubro, aprobación, duplicados y concurrencia por el último puesto libre.
+
+[CLP-18](evidencias/CLP-18.mc) comprueba la consulta con dos cuentas sintéticas y verifica que conocer el código no permite acceder al expediente de otra cuenta.

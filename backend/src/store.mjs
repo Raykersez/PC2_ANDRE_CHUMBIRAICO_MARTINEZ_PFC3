@@ -77,7 +77,8 @@ export function openStore(filename) {
     const decision = db.prepare(`SELECT reason, decided_at AS decidedAt,
       CASE WHEN ? = 'staff' THEN evaluator_id ELSE NULL END AS evaluatorId
       FROM application_decisions WHERE application_code = ?`).get(user.role, code);
-    const assignment = user.role === 'market_admin' ? findAssignment(code) : undefined;
+    const canViewAssignment = user.role === 'market_admin' || user.role === 'merchant';
+    const assignment = canViewAssignment && application.status === 'approved' ? findAssignment(code) : undefined;
     return { ...application, decision, assignment };
   }
 
