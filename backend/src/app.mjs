@@ -2,13 +2,17 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { mountLogistics } from './logistics-api.mjs';
 import express from 'express';
+import QRCode from 'qrcode';
 import { rateLimit } from 'express-rate-limit';
 import { categories, stallCodePattern } from './store.mjs';
+import { isCalendarDate, limaDate } from './calendar.mjs';
 
 const deriveKey = promisify(scrypt);
 const sessionMs = 8 * 60 * 60 * 1000;
 const cookieName = 'mercaorden_session';
 const maxFileSize = 2 * 1024 * 1024;
+const credentialLifetime = 365 * 24 * 60 * 60 * 1000;
+const credentialToken = /^[a-f0-9]{48}$/;
 const contactTopics = ['application', 'access', 'other'];
 const operationUnits = [
   { value: 'kg', label: 'Kilogramos (kg)' },
@@ -75,10 +79,7 @@ function operationDetails(body) {
   const { date, quantity, unit, submissionId } = body ?? {};
   const product = typeof body?.product === 'string' ? body.product.trim() : '';
   const fields = {};
-  const validDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
-    && !date.startsWith('0000') && Number.isFinite(Date.parse(date))
-    && new Date(date).toISOString().slice(0, 10) === date;
-  if (!validDate) fields.date = 'Ingresa una fecha válida.';
+  if (!isCalendarDate(date)) fields.date = 'Ingresa una fecha válida.';
   if (!product || product.length > 120) fields.product = 'Ingresa un producto de hasta 120 caracteres.';
   if (!Number.isFinite(quantity) || quantity <= 0) fields.quantity = 'Ingresa una cantidad mayor que cero.';
   if (!operationUnits.some((option) => option.value === unit)) fields.unit = 'Selecciona una unidad del catálogo.';
@@ -87,6 +88,25 @@ function operationDetails(body) {
     throw new ApiError(400, 'INVALID_SUBMISSION', 'Recarga el formulario y vuelve a intentar.');
   }
   return { submissionId, date, product, quantity, unit };
+}
+
+function stevedoreReview(body) {
+  const { result, documentsReviewed, identityResult } = body ?? {};
+  const reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
+  const identityReference = typeof body?.identityReference === 'string' ? body.identityReference.trim() : '';
+  const needsReference = ['matched', 'mismatch'].includes(identityResult);
+  const fields = {};
+  if (!['verified', 'observed'].includes(result)) fields.result = 'Selecciona el resultado de la verificación.';
+  if (!['not-required', 'matched', 'mismatch', 'missing'].includes(identityResult)) fields.identityResult = 'Selecciona el resultado del cotejo.';
+  if (needsReference && !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(identityReference)) {
+    fields.identityReference = 'Ingresa solo la referencia del cotejo, de 3 a 64 caracteres.';
+  }
+  if (result === 'verified' && (documentsReviewed !== true || !['not-required', 'matched'].includes(identityResult))) {
+    fields.result = 'Para verificar, confirma los documentos y registra un cotejo conforme o no aplicable.';
+  }
+  if (result === 'observed' && (!reason || reason.length > 1000)) fields.reason = 'Indica el motivo en hasta 1000 caracteres.';
+  if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos de la verificación.', fields);
+  return { result, reason: result === 'observed' ? reason : null, identityResult, identityReference: needsReference ? identityReference : null };
 }
 
 async function passwordHash(password, salt = randomBytes(16).toString('hex')) {
@@ -98,7 +118,7 @@ function sessionToken(req) {
   return req.headers.cookie?.match(/(?:^|;\s*)mercaorden_session=([0-9a-f]{64})(?:;|$)/)?.[1];
 }
 
-async function applicationForm(req) {
+async function applicationForm(req, { requireCategory = true } = {}) {
   if (!Buffer.isBuffer(req.body)) throw new ApiError(415, 'UNSUPPORTED_FORM', 'Envía el formulario con sus documentos adjuntos.');
   let form;
   try {
@@ -118,7 +138,7 @@ async function applicationForm(req) {
   if (name.length < 3 || name.length > 120) fields.name = 'Ingresa tus nombres y apellidos, entre 3 y 120 caracteres.';
   const validDocument = documentType === 'DNI' ? /^\d{8}$/.test(document) : documentType === 'CE' && /^\d{9,12}$/.test(document);
   if (!validDocument) fields.document = 'Ingresa 8 dígitos para el DNI o entre 9 y 12 para el carné de extranjería.';
-  if (!categories.includes(category)) fields.category = 'Selecciona el rubro de tu negocio.';
+  if (requireCategory && !categories.includes(category)) fields.category = 'Selecciona el rubro de tu negocio.';
   const attachments = [];
 
   for (const kind of ['identity', 'support']) {
@@ -189,6 +209,10 @@ export function createApp(store, { origin = 'http://localhost:3000', now = Date.
   }
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+  app.get('/api/stevedore-tariffs', (_req, res) => {
+    const asOf = limaDate(now());
+    res.json({ asOf, services: store.listStevedoreTariffs(asOf) });
+  });
   app.post('/api/contact', contactLimit, json, (req, res) => {
     const details = contactDetails(req.body);
     res.status(201).json({ reference: store.createContact(details) });
@@ -238,6 +262,97 @@ export function createApp(store, { origin = 'http://localhost:3000', now = Date.
   });
 
   app.get('/api/applications', requireUser, (req, res) => res.json({ applications: store.listApplications(req.user.id) }));
+  app.get('/api/stevedores', requireUser, (req, res) => res.json({
+    records: store.listStevedoreCases(req.user.id),
+    canVerify: store.hasStevedoreRole(req.user.id, 'certifier'),
+    canIssue: store.hasStevedoreRole(req.user.id, 'controller'),
+  }));
+  app.post('/api/stevedores', requireUser, express.raw({ type: 'multipart/form-data', limit: '5mb' }), async (req, res) => {
+    const { data, attachments } = await applicationForm(req, { requireCategory: false });
+    const record = store.createStevedoreCase(req.user.id, data, attachments);
+    if (!record) {
+      throw new ApiError(409, 'ACTIVE_STEVEDORE_CASE', 'Ya existe un expediente activo para ese documento. Continúa el trámite desde la cuenta con que lo registraste.');
+    }
+    res.status(201).json({ record });
+  });
+  app.get('/api/stevedores/:code', requireUser, (req, res) => {
+    const record = store.findStevedoreCase(req.params.code.toUpperCase(), req.user.id, store.hasStevedoreRole(req.user.id, 'certifier'));
+    if (!record) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente.');
+    res.json({ record });
+  });
+  app.post('/api/stevedores/:code/review', requireUser, json, (req, res) => {
+    if (!store.hasStevedoreRole(req.user.id, 'certifier')) {
+      throw new ApiError(403, 'CERTIFIER_REQUIRED', 'Solo el certificador municipal puede registrar la verificación.');
+    }
+    const { record, recorded } = store.reviewStevedoreCase(req.params.code.toUpperCase(), req.user.id, stevedoreReview(req.body));
+    if (!record) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente.');
+    if (!recorded) throw new ApiError(409, 'ALREADY_REVIEWED', 'El expediente ya fue revisado. Recarga su estado.');
+    res.json({ record });
+  });
+  app.get('/api/stevedores/:code/attachments/:kind', requireUser, (req, res) => {
+    const file = store.findStevedoreAttachment(req.params.code.toUpperCase(), req.params.kind, req.user.id,
+      store.hasStevedoreRole(req.user.id, 'certifier'));
+    if (!file) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese documento.');
+    res.attachment(`${req.params.kind === 'identity' ? 'identidad' : 'sustento-laboral'}.${fileTypes[file.mime].extension}`)
+      .type(file.mime).send(Buffer.from(file.bytes));
+  });
+  function requireController(req, _res, next) {
+    if (!store.hasStevedoreRole(req.user.id, 'controller')) {
+      return next(new ApiError(403, 'CONTROLLER_REQUIRED', 'Solo el responsable de control puede gestionar credenciales.'));
+    }
+    next();
+  }
+
+  function credentialStatus(credential) {
+    if (credential.revokedAt !== null) return 'revoked';
+    return credential.expiresAt <= now() ? 'expired' : 'active';
+  }
+
+  function publicCredential(credential) {
+    return { status: credentialStatus(credential), expiresAt: new Date(credential.expiresAt).toISOString() };
+  }
+
+  function credentialRecord(record) {
+    const credential = record.credential;
+    return {
+      ...record,
+      credential: credential && {
+        ...publicCredential(credential),
+        token: credential.token,
+        validationUrl: new URL('/estibadores/validar/' + credential.token, browserOrigin).href,
+      },
+    };
+  }
+
+  app.get('/api/stevedores/:code/credential', requireUser, requireController, (req, res) => {
+    const record = store.credentialCase(req.params.code.toUpperCase());
+    if (!record) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente.');
+    res.json({ record: credentialRecord(record) });
+  });
+  app.post('/api/stevedores/:code/credential', requireUser, requireController, (req, res) => {
+    const issuedAt = now();
+    const { record, error } = store.issueStevedoreCredential(req.params.code.toUpperCase(), req.user.id, issuedAt, issuedAt + credentialLifetime);
+    if (error === 'NOT_FOUND') throw new ApiError(404, error, 'No encontramos ese expediente.');
+    if (error === 'NOT_VERIFIED') throw new ApiError(409, error, 'Solo se emiten credenciales para expedientes verificados.');
+    if (error === 'CREDENTIAL_ACTIVE') throw new ApiError(409, error, 'Ya existe una credencial vigente. Consulta el expediente nuevamente.');
+    res.status(201).json({ record: credentialRecord(record) });
+  });
+  app.get('/api/stevedore-credentials/:token', (req, res) => {
+    const credential = credentialToken.test(req.params.token) && store.findCredential(req.params.token);
+    if (!credential) throw new ApiError(404, 'CREDENTIAL_UNKNOWN', 'La credencial no existe o el código es inválido.');
+    res.json(publicCredential(credential));
+  });
+  app.get('/api/stevedore-credentials/:token/qr', requireUser, requireController, async (req, res) => {
+    const credential = credentialToken.test(req.params.token) && store.findCredential(req.params.token);
+    if (!credential) throw new ApiError(404, 'CREDENTIAL_UNKNOWN', 'No encontramos esa credencial.');
+    const url = new URL('/estibadores/validar/' + credential.token, browserOrigin).href;
+    res.type('png').send(await QRCode.toBuffer(url, { width: 320, margin: 4 }));
+  });
+  app.post('/api/stevedore-credentials/:token/revoke', requireUser, requireController, (req, res) => {
+    const credential = credentialToken.test(req.params.token) && store.revokeStevedoreCredential(req.params.token, req.user.id, now());
+    if (!credential) throw new ApiError(404, 'CREDENTIAL_UNKNOWN', 'No encontramos esa credencial.');
+    res.json(publicCredential(credential));
+  });
   app.post('/api/applications', requireUser, express.raw({ type: 'multipart/form-data', limit: '5mb' }), async (req, res) => {
     if (req.user.role !== 'merchant') throw new ApiError(403, 'MERCHANT_REQUIRED', 'Solo los comerciantes pueden iniciar una solicitud.');
     const { data, attachments } = await applicationForm(req);

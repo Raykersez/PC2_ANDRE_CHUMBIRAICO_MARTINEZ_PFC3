@@ -16,6 +16,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
           <a href="/" aria-label="Inicio de MercaOrden"><Brand /></a>
           <nav aria-label="Navegación principal">
             <a className="nav-link" href="#acerca">Acerca de nosotros</a>
+            <a className="nav-link" href="/estibadores">Estibadores</a>
+            <a className="nav-link" href="/estibadores/tarifario">Tarifario</a>
             <a className="nav-link" href="#contacto">Contáctanos</a>
           </nav>
           <div className="header-actions">
