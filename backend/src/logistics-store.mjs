@@ -34,13 +34,20 @@ export function logisticsStore(db) {
       booking_code TEXT PRIMARY KEY REFERENCES logistics_bookings(code),
       cancelled_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS logistics_exits (
+      booking_code TEXT PRIMARY KEY REFERENCES logistics_entries(booking_code),
+      agent_id TEXT NOT NULL REFERENCES accounts(id),
+      exited_at INTEGER NOT NULL
+    );
   `);
 
   const bookingFields = `b.code, b.plate, w.date, w.operation, w.bay, w.starts_at AS startsAt,
-    w.ends_at AS endsAt, e.entered_at AS enteredAt, c.cancelled_at AS cancelledAt`;
+    w.ends_at AS endsAt, e.entered_at AS enteredAt, c.cancelled_at AS cancelledAt, x.exited_at AS exitedAt,
+    (x.exited_at - e.entered_at) / 60000 AS stayMinutes`;
   const bookingsWithWindow = `FROM logistics_bookings b JOIN logistics_windows w ON w.id = b.window_id
     LEFT JOIN logistics_entries e ON e.booking_code = b.code
-    LEFT JOIN logistics_cancellations c ON c.booking_code = b.code`;
+    LEFT JOIN logistics_cancellations c ON c.booking_code = b.code
+    LEFT JOIN logistics_exits x ON x.booking_code = b.code`;
   const isNotCancelled = 'NOT EXISTS (SELECT 1 FROM logistics_cancellations WHERE booking_code = b.code)';
 
   function withWrite(write) {
@@ -60,11 +67,18 @@ export function logisticsStore(db) {
       .get(code, ownerId, ownerId);
   }
 
-  function checkLogisticsEntry(code, plate, now) {
+  function matchLogisticsBooking(code, plate) {
     const booking = findBooking(code);
     if (!booking) return { error: 'BOOKING_NOT_FOUND' };
     if (booking.plate !== plate) return { error: 'PLATE_MISMATCH' };
     if (booking.cancelledAt !== null) return { error: 'BOOKING_CANCELLED' };
+    return { booking };
+  }
+
+  function checkLogisticsEntry(code, plate, now) {
+    const result = matchLogisticsBooking(code, plate);
+    if (!result.booking) return result;
+    const { booking } = result;
     if (booking.enteredAt !== null) return { booking, repeated: true };
     if (now < booking.startsAt || now >= booking.endsAt) return { error: 'OUTSIDE_WINDOW' };
     return { booking, repeated: false };
@@ -77,7 +91,9 @@ export function logisticsStore(db) {
       WHERE b.window_id = ? AND ${isNotCancelled}`).get(windowId);
     if (taken.count >= window.capacity) return { error: 'WINDOW_UNAVAILABLE' };
     const overlap = db.prepare(`SELECT 1 FROM logistics_bookings b JOIN logistics_windows w ON w.id = b.window_id
-      WHERE b.plate = ? AND w.starts_at < ? AND w.ends_at > ? AND ${isNotCancelled} LIMIT 1`).get(plate, window.ends_at, window.starts_at);
+      WHERE b.plate = ? AND w.starts_at < ? AND w.ends_at > ? AND ${isNotCancelled}
+        AND NOT EXISTS (SELECT 1 FROM logistics_exits WHERE booking_code = b.code)
+      LIMIT 1`).get(plate, window.ends_at, window.starts_at);
     if (overlap) return { error: 'PLATE_OVERLAP' };
     const code = 'TV-' + randomBytes(8).toString('hex').toUpperCase();
     db.prepare('INSERT INTO logistics_bookings VALUES (?, ?, ?, ?, ?)').run(code, ownerId, windowId, plate, now);
@@ -104,6 +120,19 @@ export function logisticsStore(db) {
           result.booking.enteredAt = now;
         }
         return result;
+      });
+    },
+    recordLogisticsExit(code, plate, accountId, clock) {
+      return withWrite(() => {
+        const result = matchLogisticsBooking(code, plate);
+        if (!result.booking) return result;
+        const { booking } = result;
+        if (booking.enteredAt === null) return { error: 'ENTRY_REQUIRED' };
+        if (booking.exitedAt !== null) return { error: 'ALREADY_CLOSED' };
+        const now = clock();
+        if (now < booking.enteredAt) return { error: 'EXIT_BEFORE_ENTRY' };
+        db.prepare('INSERT INTO logistics_exits VALUES (?, ?, ?)').run(code, accountId, now);
+        return { booking: findBooking(code) };
       });
     },
     listLogisticsBookings(ownerId) {

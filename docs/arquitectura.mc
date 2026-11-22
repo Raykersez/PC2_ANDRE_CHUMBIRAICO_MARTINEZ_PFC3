@@ -23,3 +23,5 @@ flowchart LR
 
 - En [CLP-18](epicas/CLP-1/CLP-18.mc), el expediente del titular incluye el motivo de observación o los datos de su puesto. La API comprueba identidad y titularidad antes de leer ese detalle.
 - [CLP-19](epicas/CLP-1/CLP-19.mc) vincula las operaciones a una asignación aprobada del comerciante y evita duplicados mediante una clave de envío única dentro de esa asignación.
+
+- [EP-03](epicas/CLP-3/CLP-3.mc) usa ventanas en hora de Lima y turnos con códigos opacos. SQLite verifica el cupo y la placa en transacciones y registra ingreso, cancelación y salida como eventos únicos. Las cancelaciones liberan capacidad sin borrar el historial.

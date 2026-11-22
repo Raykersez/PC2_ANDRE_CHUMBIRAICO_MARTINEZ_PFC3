@@ -76,6 +76,7 @@ test('EP-03 · turnos de carga y descarga', async (t) => {
     assert.deepEqual(winningBooking, {
       code: winningBooking.code, plate: ['ABC123', 'APT456'][index], bay: window.bay, operation: 'load',
       date, startsAt: window.startsAt, endsAt: window.endsAt, enteredAt: null, cancelledAt: null,
+      exitedAt: null, stayMinutes: null,
     });
     assert.match(winningBooking.code, /^TV-[A-F0-9]{16}$/);
     assert.equal((await attempts[1 - index].json()).error.code, 'WINDOW_UNAVAILABLE');
@@ -162,5 +163,42 @@ test('EP-03 · turnos de carga y descarga', async (t) => {
     assert.equal((await deniedEntry.json()).error.code, 'BOOKING_CANCELLED');
     const history = (await (await request('/logistics/bookings', holder)).json()).bookings;
     assert.equal(history.find((item) => item.code === booking.code).cancelledAt, cancelled[0].booking.cancelledAt);
+  });
+
+  await t.test('CLP-22 · cierra tras el ingreso y conserva la primera salida', async () => {
+    const original = { code: winningBooking.code, plate: winningBooking.plate };
+    const exit = (body, actor = agent) => request('/logistics/access/exit', actor, body);
+    const enteredAt = window.startsAt + 60_000;
+    assert.equal((await exit(original, holder)).status, 403);
+    assert.equal((await exit({ ...original, plate: 'XYZ-789' })).status, 409);
+    now = enteredAt - 1;
+    const reversed = await exit(original);
+    assert.equal(reversed.status, 409);
+    assert.equal((await reversed.json()).error.code, 'EXIT_BEFORE_ENTRY');
+    now = enteredAt + 125_000;
+    const attempts = await Promise.all([exit(original), exit(original)]);
+    assert.deepEqual(attempts.map(({ status }) => status).sort(), [200, 409]);
+    const { booking } = await attempts.find((response) => response.status === 200).json();
+    assert.equal(booking.enteredAt, enteredAt);
+    assert.equal(booking.exitedAt, now);
+    assert.equal(booking.stayMinutes, 2);
+    assert.equal((await attempts.find((response) => response.status === 409).json()).error.code, 'ALREADY_CLOSED');
+    const retry = await request('/logistics/access/check', agent, original);
+    assert.deepEqual((await retry.json()).booking, booking);
+
+    const next = data('B-06', '14:00', '15:00');
+    const { id } = store.addLogisticsWindow(next);
+    const later = (await (await book(other, id, 'NEW-234')).json()).booking;
+    const secondVisit = { code: later.code, plate: later.plate };
+    const noEntry = await exit(secondVisit);
+    assert.equal(noEntry.status, 409);
+    assert.equal((await noEntry.json()).error.code, 'ENTRY_REQUIRED');
+    now = next.startsAt;
+    assert.equal((await request('/logistics/access/entry', agent, secondVisit)).status, 200);
+    const sameInstant = await exit(secondVisit);
+    assert.equal(sameInstant.status, 200);
+    const { booking: immediate } = await sameInstant.json();
+    assert.equal(immediate.enteredAt, immediate.exitedAt);
+    assert.equal(immediate.stayMinutes, 0);
   });
 });

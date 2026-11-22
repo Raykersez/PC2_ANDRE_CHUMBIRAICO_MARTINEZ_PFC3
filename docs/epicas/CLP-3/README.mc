@@ -8,3 +8,4 @@ Turnos de carga y descarga y control de acceso vehicular a bahías. [Épica CLP-
 | [CLP-13 · Reservar turno para un vehículo](CLP-13.mc) | Integración a main pendiente. |
 | [CLP-14 · Controlar el ingreso vehicular](CLP-14.mc) | Integración a main pendiente. |
 | [CLP-21 · Cancelar un turno y liberar el cupo](CLP-21.mc) | Integración a main pendiente. |
+| [CLP-22 · Cerrar el turno con la salida del vehículo](CLP-22.mc) | Integración a main pendiente. |

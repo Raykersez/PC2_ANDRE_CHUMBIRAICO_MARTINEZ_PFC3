@@ -6,7 +6,7 @@ import { Field } from '../components';
 import type { Fields } from '../types';
 import { BookingSummary, type VehicleBooking } from './booking-summary';
 
-type AccessResult = { booking: VehicleBooking; repeated: boolean };
+type AccessResult = { booking: VehicleBooking; repeated?: boolean };
 const limaTime = new Intl.DateTimeFormat('es-PE', {
   timeZone: 'America/Lima', dateStyle: 'medium', timeStyle: 'short',
 });
@@ -18,7 +18,7 @@ export function VehicleAccess() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  async function access(operation: 'check' | 'entry', code: string, plate: string) {
+  async function access(operation: 'check' | 'entry' | 'exit', code: string, plate: string) {
     if (busy) return;
     setBusy(true);
     setFields({});
@@ -31,7 +31,9 @@ export function VehicleAccess() {
         body: JSON.stringify({ code, plate }),
       });
       setSelection(result);
-      if (result.booking.enteredAt !== null) {
+      if (operation === 'exit') {
+        setNotice('Salida registrada. El turno quedó cerrado.');
+      } else if (result.booking.exitedAt === null && result.booking.enteredAt !== null) {
         setNotice(result.repeated ? 'El ingreso ya estaba registrado.' : 'Ingreso registrado.');
       }
     } catch (error) {
@@ -54,8 +56,8 @@ export function VehicleAccess() {
 
   return (
     <section className="panel main-panel logistics-panel" aria-labelledby="access-title">
-      <h2 id="access-title">Control de ingreso</h2>
-      <p className="secondary">Compara el código del turno y la placa del vehículo antes de confirmar.</p>
+      <h2 id="access-title">Control de ingreso y salida</h2>
+      <p className="secondary">Compara el código del turno y la placa del vehículo antes de registrar un movimiento.</p>
       <form onSubmit={check} onChange={() => { setSelection(null); setNotice(''); }} aria-busy={busy}>
         <div className="field-grid">
           <Field name="access-code" label="Código del turno" error={fields.code}>
@@ -77,7 +79,18 @@ export function VehicleAccess() {
           {selection.booking.enteredAt === null ? (
             <button className="button filled logistics-signout" type="button" disabled={busy}
               onClick={() => access('entry', selection.booking.code, selection.booking.plate)}>Confirmar ingreso</button>
-          ) : <p className="secondary">Ingreso registrado el {limaTime.format(selection.booking.enteredAt)} (Lima).</p>}
+          ) : (
+            <>
+              <p className="secondary">Ingreso registrado el {limaTime.format(selection.booking.enteredAt)} (Lima).</p>
+              {selection.booking.exitedAt === null ? (
+                <button className="button filled logistics-signout" type="button" disabled={busy}
+                  onClick={() => access('exit', selection.booking.code, selection.booking.plate)}>Confirmar salida</button>
+              ) : (
+                <p className="secondary">Salida registrada el {limaTime.format(selection.booking.exitedAt)} (Lima).
+                  Permanencia de {selection.booking.stayMinutes} {selection.booking.stayMinutes === 1 ? 'minuto' : 'minutos'}.</p>
+              )}
+            </>
+          )}
         </div>
       )}
     </section>

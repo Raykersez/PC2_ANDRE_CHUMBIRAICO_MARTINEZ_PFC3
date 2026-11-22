@@ -4,9 +4,12 @@ const bookingErrors = {
   BOOKING_NOT_FOUND: [404, 'No encontramos ese turno.'],
   PLATE_MISMATCH: [409, 'La placa no coincide con la registrada en el turno.'],
   OUTSIDE_WINDOW: [409, 'El vehículo está fuera de su ventana. El ingreso queda sin registrar.'],
-  BOOKING_CANCELLED: [409, 'Este turno está cancelado. El ingreso queda sin registrar.'],
+  BOOKING_CANCELLED: [409, 'Este turno está cancelado. No se puede registrar un movimiento.'],
   ENTRY_ALREADY_RECORDED: [409, 'El vehículo ya tiene un ingreso registrado. El turno no se puede cancelar.'],
   WINDOW_STARTED: [409, 'El turno ya empezó. Solo puedes cancelar antes del inicio.'],
+  ENTRY_REQUIRED: [409, 'Este turno no tiene un ingreso registrado.'],
+  ALREADY_CLOSED: [409, 'El turno ya está cerrado. Verifica el turno para consultar el registro original.'],
+  EXIT_BEFORE_ENTRY: [409, 'La hora de salida no puede ser anterior al ingreso.'],
 };
 const bookingCodePattern = /^TV-[A-F0-9]{16}$/;
 
@@ -51,6 +54,10 @@ export function mountLogistics(app, store, { ApiError, now, requireUser, json })
   app.post('/api/logistics/access/entry', requireUser, requireAccessAgent, json, (req, res) => {
     const { code, plate } = accessDetails(req.body);
     respondBooking(res, store.recordLogisticsEntry(code, plate, req.user.id, now));
+  });
+  app.post('/api/logistics/access/exit', requireUser, requireAccessAgent, json, (req, res) => {
+    const { code, plate } = accessDetails(req.body);
+    respondBooking(res, store.recordLogisticsExit(code, plate, req.user.id, now));
   });
   app.post('/api/logistics/bookings', requireUser, json, (req, res) => {
     const { windowId } = req.body ?? {};
