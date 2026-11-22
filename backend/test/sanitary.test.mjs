@@ -25,10 +25,11 @@ test('EP-04 · fiscalización sanitaria y residuos', async (t) => {
   });
   const base = 'http://127.0.0.1:' + server.address().port + '/api';
   function request(path, actor, body) {
+    const multipart = body instanceof FormData;
     return fetch(base + path, {
       method: body === undefined ? 'GET' : 'POST',
-      headers: { ...(actor && { Cookie: actor.cookie }), ...(body !== undefined && { 'Content-Type': 'application/json' }) },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: { ...(actor && { Cookie: actor.cookie }), ...(body !== undefined && !multipart && { 'Content-Type': 'application/json' }) },
+      body: body === undefined || multipart ? body : JSON.stringify(body),
     });
   }
   async function account(name, role) {
@@ -41,10 +42,12 @@ test('EP-04 · fiscalización sanitaria y residuos', async (t) => {
   }
   const inspector = await account('inspector', 'inspector');
   const owner = await account('comerciante');
+  const other = await account('otra-cuenta');
   const path = '/sanitary/inspections';
   const stall = { code: 'P-01', location: 'Zona sintética', category: 'Frutas' };
   assert.equal(store.addStall(stall), true);
   let inspection;
+  let finding;
 
   await t.test('CLP-15 · autoriza, valida y guarda una inspección por borrador', async () => {
     const body = {
@@ -69,5 +72,47 @@ test('EP-04 · fiscalización sanitaria y residuos', async (t) => {
     const history = await (await request(path + '?stallCode=P-01', inspector)).json();
     assert.deepEqual(history.inspections, [inspection]);
     assert.equal(history.checklist.version, 1);
+  });
+
+  await t.test('CLP-16 · registra hallazgo y protege la evidencia por puesto', async () => {
+    const { application } = store.createApplication(owner.id, { name: 'Comerciante sintético', category: 'Frutas', documentType: 'DNI', document: '90000801' }, []);
+    store.resolveApplication(application.code, { ...inspector, role: 'staff' }, 'approved', null);
+    assert.ok(store.assignStall(application.code, stall.code, inspector.id).assignment);
+    const path = '/sanitary/findings';
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aVXYAAAAASUVORK5CYII=', 'base64');
+    const form = (overrides = {}) => {
+      const data = new FormData();
+      const values = {
+        inspectionId: inspection.id, criterion: 'storage', description: 'Incumplimiento sintético.',
+        correctiveAction: 'Aplicar medida de prueba.', dueOn: '2026-11-21',
+        evidence: new File([png], 'evidencia.png', { type: 'image/png' }), ...overrides,
+      };
+      for (const [key, value] of Object.entries(values)) data.set(key, value);
+      return data;
+    };
+    assert.equal((await request(path, owner, form())).status, 403);
+    const early = await request(path, inspector, form({ dueOn: '2026-11-20' }));
+    assert.equal(early.status, 400);
+    assert.ok((await early.json()).error.fields.dueOn);
+    assert.equal((await request(path, inspector, form({ criterion: 'hygiene' }))).status, 400);
+    assert.equal((await request(path, inspector, form({ evidence: new File(['texto'], 'falso.png', { type: 'image/png' }) }))).status, 400);
+    const result = await request(path, inspector, form());
+    assert.equal(result.status, 201);
+    finding = (await result.json()).finding;
+    assert.equal(finding.status, 'open');
+    assert.equal(finding.inspectionId, inspection.id);
+    assert.equal(finding.stallCode, stall.code);
+    assert.equal(finding.criterion, 'storage');
+    assert.deepEqual((await (await request(path, owner)).json()).findings, [finding]);
+    assert.deepEqual((await (await request(path, other)).json()).findings, []);
+    const evidence = path + '/' + finding.id + '/evidence';
+    assert.equal((await request(evidence, null)).status, 401);
+    assert.equal((await request(evidence, other)).status, 404);
+    for (const actor of [owner, inspector]) {
+      const file = await request(evidence, actor);
+      assert.equal(file.status, 200);
+      assert.match(file.headers.get('content-disposition'), /^attachment/);
+      assert.deepEqual(Buffer.from(await file.arrayBuffer()), png);
+    }
   });
 });

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiFailure } from '../api';
 import { Field } from '../components';
 import type { Fields } from '../types';
+import { FindingForm, FindingsHistory, type Finding } from './findings';
 
 export type Inspection = {
   id: string; stallCode: string; version: number; inspectorId: string;
@@ -23,8 +24,9 @@ export function SanitaryWorkspace({ accountId, busy, setBusy }: {
   accountId: string; busy: boolean; setBusy: (value: boolean) => void;
 }) {
   const storageKey = 'mercaorden-inspection-' + accountId;
-  const [canInspect, setCanInspect] = useState(false);
   const [panel, setPanel] = useState<PanelData | null>(null);
+  const [findingFor, setFindingFor] = useState<Inspection | null>(null);
+  const [findings, setFindings] = useState<Finding[]>([]);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [historyStall, setHistoryStall] = useState('');
   const [fields, setFields] = useState<Fields>({});
@@ -35,9 +37,13 @@ export function SanitaryWorkspace({ accountId, busy, setBusy }: {
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
-      const { canInspect } = await api<{ canInspect: boolean }>('/sanitary', { signal: controller.signal });
+      const options = { signal: controller.signal };
+      const [{ canInspect }, { findings }] = await Promise.all([
+        api<{ canInspect: boolean }>('/sanitary', options),
+        api<{ findings: Finding[] }>('/sanitary/findings', options),
+      ]);
       if (controller.signal.aborted) return;
-      setCanInspect(canInspect);
+      setFindings(findings);
       if (canInspect) {
         const data = await api<PanelData>(inspectionsPath, { signal: controller.signal });
         if (!controller.signal.aborted) setPanel(data);
@@ -96,7 +102,6 @@ export function SanitaryWorkspace({ accountId, busy, setBusy }: {
       {loading && <p className="secondary" role="status">Consultando tus permisos…</p>}
       {error && <p className="feedback error sanitary-feedback" role="alert">{error}</p>}
       {notice && <p className="feedback success sanitary-feedback" role="status">{notice}</p>}
-      {!loading && !error && !canInspect && <p className="secondary">Tu cuenta no tiene permiso para registrar inspecciones.</p>}
       {panel && (
         <>
           <form noValidate onSubmit={inspect}>
@@ -147,12 +152,22 @@ export function SanitaryWorkspace({ accountId, busy, setBusy }: {
                   <span>{sanitaryTime.format(item.inspectedAt)} (Lima) · Lista v{item.version}</span>
                   <span>Inspector: {item.inspectorId}</span>
                   {item.notes && <p>{item.notes}</p>}
+                  {item.result === 'noncompliant' && <button className="button tonal" type="button" disabled={busy}
+                    onClick={() => setFindingFor(item)}>Registrar hallazgo</button>}
                 </li>
               ))}
             </ul>
           </section>
+          {findingFor && <FindingForm key={findingFor.id} id={findingFor.id} stallCode={findingFor.stallCode}
+            criteria={panel.checklist.criteria.filter(({ code }) => findingFor.answers[code] === 'noncompliant')}
+            busy={busy} setBusy={setBusy} onCancel={() => setFindingFor(null)} onSaved={(finding) => {
+              setFindings((items) => [finding, ...items]);
+              setFindingFor(null);
+              setNotice('Hallazgo abierto y disponible para el titular del puesto.');
+            }} />}
         </>
       )}
+      {!loading && <FindingsHistory findings={findings} />}
     </>
   );
 }
