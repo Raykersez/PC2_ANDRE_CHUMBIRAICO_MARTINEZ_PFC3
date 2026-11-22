@@ -1,0 +1,100 @@
+name: Desplegar demo de Azure
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: azure-demo
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Probar y empaquetar la demo
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Empaquetar aplicación
+        run: |
+          npm prune --omit=dev
+          zip -qr -y "$RUNNER_TEMP/mercaorden.zip" \
+            package.json node_modules frontend backend/src backend/package.json infra/azure/start-demo.mjs \
+            -x '*/.env*' '*/.next/cache/*' '*/.data/*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mercaorden-demo
+          path: ${{ runner.temp }}/mercaorden.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    name: Aprovisionar y publicar la demo
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: azure-demo
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_DEMO_RESOURCE_GROUP }}
+      LOCATION: ${{ vars.AZURE_DEMO_LOCATION }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: mercaorden-demo
+          path: ${{ runner.temp }}
+      - name: Compilar la plantilla
+        run: az bicep build --file infra/azure/demo.bicep --outfile "$RUNNER_TEMP/azure-demo.json"
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Validar y aprovisionar App Service F1
+        id: infra
+        run: |
+          : "${RESOURCE_GROUP:?Configura AZURE_DEMO_RESOURCE_GROUP en azure-demo}"
+          : "${LOCATION:?Configura AZURE_DEMO_LOCATION en azure-demo}"
+          args=(--resource-group "$RESOURCE_GROUP" --template-file "$RUNNER_TEMP/azure-demo.json" --parameters "location=$LOCATION")
+          az deployment group validate "${args[@]}" --output none
+          outputs="$(az deployment group create "${args[@]}" --name mercaorden-demo --mode Incremental --query properties.outputs --output json)"
+          app_name="$(jq -er '.appName.value' <<< "$outputs")"
+          app_url="$(jq -er '.appUrl.value' <<< "$outputs")"
+          printf 'app_name=%s\napp_url=%s\n' "$app_name" "$app_url" >> "$GITHUB_OUTPUT"
+      - name: Publicar paquete
+        env:
+          APP_NAME: ${{ steps.infra.outputs.app_name }}
+        run: |
+          az webapp deploy --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" \
+            --src-path "$RUNNER_TEMP/mercaorden.zip" --type zip --output none
+      - name: Verificar el portal y la API
+        env:
+          APP_URL: ${{ steps.infra.outputs.app_url }}
+        run: |
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --max-time 20 "$APP_URL/" -o "$RUNNER_TEMP/portal.html"
+          grep -q 'MercaOrden' "$RUNNER_TEMP/portal.html"
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --max-time 20 "$APP_URL/api/health" | jq -e '.status == "ok"'
+          printf 'Portal de prueba: %s\n' "$APP_URL/" >> "$GITHUB_STEP_SUMMARY"
