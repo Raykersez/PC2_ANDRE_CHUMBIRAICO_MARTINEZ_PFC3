@@ -1,87 +1,32 @@
 'use client';
 
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
-type User = { id: string; email: string; role: 'merchant' | 'staff' };
-type Application = { code: string; name: string; category: string; status: 'pending'; createdAt: string };
-type Fields = Record<string, string>;
-type Theme = 'system' | 'light' | 'dark';
+import { api, ApiFailure } from './api';
+import { Brand, Field } from './components';
+import { ThemeSelect } from './theme-select';
+import type { Application, Fields, User } from './types';
+
 type AuthMode = 'signup' | 'login';
-
-class ApiFailure extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly fields: Fields = {},
-    readonly application: Application | null = null,
-  ) { super(message); }
-}
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch('/api' + path, { ...init, cache: 'no-store' });
-  } catch {
-    throw new ApiFailure('No se pudo conectar. Revisa tu conexión y vuelve a intentarlo.', 0);
-  }
-  if (response.status === 204) return undefined as T;
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new ApiFailure(body.error?.message ?? 'El servicio está temporalmente ocupado. Inténtalo de nuevo.',
-      response.status, body.error?.fields, body.application);
-  }
-  return body as T;
-}
-
-function Brand() {
-  return (
-    <span className="brand">
-      <span className="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 13.5 6.8 7h14.4l2.8 6.5M6 15v6h16v-6M4 13.5c0 1.8 3.4 2.6 5 0 1.5 2.5 4 2.5 5 0 1.4 2.5 4 2.5 5 0 1.4 2.5 5 1.8 5 0M9 13.5 10 7m4 6.5V7m5 6.5L18 7M11 21v-4h6v4" />
-        </svg>
-      </span>
-      <span>MercaOrden</span>
-    </span>
-  );
-}
-
-function Field({ name, label, error, helper, children }: {
-  name: string; label: string; error?: string; helper?: string; children: ReactNode;
-}) {
-  return (
-    <div className="field">
-      <label htmlFor={name}>{label}</label>
-      {children}
-      <span id={name + '-hint'} className={error ? 'field-error' : 'hint'}>{error || helper}</span>
-    </div>
-  );
-}
 
 const fileFormats = '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png';
 const fileHint = 'PDF, JPG o PNG. Máximo 2 MB.';
 const categories = ['Frutas', 'Verduras', 'Tubérculos', 'Abarrotes', 'Otros alimentos'];
 const localDate = new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeZone: 'America/Lima' });
 
-export function Portal() {
+export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
   const [user, setUser] = useState<User | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [receipt, setReceipt] = useState<Application | null>(null);
-  const [mode, setMode] = useState<AuthMode>('signup');
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [theme, setTheme] = useState<Theme>('system');
   const [message, setMessage] = useState('');
   const [notice, setNotice] = useState('');
   const [fields, setFields] = useState<Fields>({});
   const [documentType, setDocumentType] = useState('DNI');
 
   useEffect(() => {
-    const saved = localStorage.getItem('mercaorden-theme');
-    if (saved === 'light' || saved === 'dark') {
-      setTheme(saved);
-      document.documentElement.dataset.theme = saved;
-    }
     const controller = new AbortController();
     const options = { signal: controller.signal };
     async function load() {
@@ -102,12 +47,6 @@ export function Portal() {
     void load();
     return () => controller.abort();
   }, []);
-
-  function changeTheme(value: Theme) {
-    setTheme(value);
-    document.documentElement.dataset.theme = value;
-    localStorage.setItem('mercaorden-theme', value);
-  }
 
   function openAuth(value: AuthMode) {
     setMode(value);
@@ -240,9 +179,7 @@ export function Portal() {
             <a className="nav-link" href="#expedientes">Mis solicitudes</a>
           </nav>
           <div className="header-actions">
-            <select aria-label="Tema de color" className="theme" value={theme} onChange={(event) => changeTheme(event.target.value as Theme)}>
-              <option value="system">Sistema</option><option value="light">Claro</option><option value="dark">Oscuro</option>
-            </select>
+            <ThemeSelect />
             {user ? <button className="button outline session-button" disabled={busy} onClick={signOut}>Cerrar sesión</button>
               : <a className="button outline session-button" href="#tramite" onClick={() => openAuth('login')}>Iniciar sesión</a>}
           </div>
@@ -257,7 +194,7 @@ export function Portal() {
         </section>
 
         <div className="workspace">
-          <section className="panel main-panel" id="tramite" aria-labelledby="form-title" aria-busy={loading || busy}>
+          <section className="panel main-panel" id="tramite" tabIndex={-1} aria-labelledby="form-title" aria-busy={loading || busy}>
             {message && <p className="feedback error" role="alert">{message}</p>}
             {notice && <p className="feedback success" role="status">{notice}</p>}
             {loading ? (
@@ -282,6 +219,10 @@ export function Portal() {
                   </Field>
                   <button className="button filled" type="submit" disabled={busy}>{busy ? 'Un momento…' : mode === 'signup' ? 'Crear cuenta y continuar' : 'Entrar a mi cuenta'}</button>
                 </form>
+                <div className="receipt-actions">
+                  {mode === 'login' && <a className="button tonal" href="/?ayuda=acceso#contacto">Solicitar ayuda para recuperar el acceso</a>}
+                  <a className="button outline" href="/">Volver al inicio</a>
+                </div>
               </>
             ) : receipt ? (
               <>

@@ -1,0 +1,136 @@
+.landing {
+  --md-secondary-container: light-dark(#e1ebe1, #354b3d);
+  --md-on-secondary-container: light-dark(#243a2b, #d6ead9);
+}
+
+.landing .button { min-height: 48px; }
+.landing .tonal { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.landing nav a { display: inline-flex; align-items: center; min-height: 48px; }
+.landing .theme { min-height: 48px; }
+.landing main { padding-top: clamp(16px, 3vw, 32px); }
+
+.landing-announcement {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 4px 8px 4px 18px;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  border-radius: var(--md-radius-medium);
+}
+
+.announcement-close {
+  flex: 0 0 48px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.5rem;
+  padding: 0;
+}
+
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(24px, 5vw, 64px);
+  padding: clamp(22px, 5vw, 64px);
+  border-radius: var(--md-radius-large);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+.hero-label { font-weight: 700; font-size: .95rem; }
+
+.hero-copy h1 {
+  font-size: clamp(2.38rem, 5.2vw, 4.5rem);
+  line-height: 1.04;
+  letter-spacing: -.055em;
+  margin: 12px 0 18px;
+}
+
+.hero-copy .button { margin-top: 24px; }
+.hero-copy h1 + p { max-width: 38ch; font-size: clamp(1rem, 2vw, 1.2rem); }
+
+.hero-guide {
+  background: var(--md-surface-container-low);
+  color: var(--md-on-surface);
+  padding: clamp(18px, 3vw, 30px);
+  border-radius: var(--md-radius-large);
+}
+
+.hero-guide h2 { font-size: 1.45rem; }
+.hero-guide ol { padding-left: 1.3rem; margin: 12px 0 0; }
+.hero-guide li { padding: 12px 0 12px 6px; }
+.hero-guide li + li { border-top: 1px solid var(--md-outline-variant); }
+.hero-guide li:last-child { padding-bottom: 0; }
+.hero-guide li::marker { color: var(--md-primary); font-weight: 750; }
+.hero-guide li span { display: block; color: var(--md-on-surface-variant); }
+
+.landing-about,
+.landing-contact {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(16px, 4vw, 48px);
+  scroll-margin-top: 16px;
+}
+
+.landing-about {
+  margin-block: clamp(30px, 6vw, 72px);
+  align-items: center;
+}
+
+.landing-about h2,
+.landing-contact h2 { font-size: clamp(1.75rem, 3.6vw, 2.5rem); }
+
+.landing-about h2 + p,
+.landing-contact h2 + p { color: var(--md-on-surface-variant); margin-top: 12px; max-width: 47ch; }
+
+.landing-facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 0; }
+.landing-facts div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 4px;
+  background: var(--md-surface-container-high);
+  border-radius: var(--md-radius-medium);
+  padding: clamp(12px, 2vw, 24px);
+}
+
+.landing-facts dt { color: var(--md-on-surface-variant); font-size: .9rem; }
+.landing-facts dd { margin: 0; font-size: clamp(1rem, 2vw, 1.35rem); font-weight: 750; }
+
+.landing-contact { padding: clamp(18px, 4vw, 48px); }
+.contact-form form { margin-top: 0; }
+.contact-form fieldset { display: grid; gap: 14px; padding: 0; margin: 0; border: 0; min-width: 0; }
+.contact-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.contact-form textarea {
+  width: 100%;
+  min-height: 104px;
+  padding: 9px 12px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-radius-small);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  font: inherit;
+  resize: vertical;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .landing .top-content { flex-wrap: wrap; gap: 4px 12px; padding-block: 8px; }
+  .landing nav { order: 3; width: 100%; flex-wrap: wrap; gap: 0 20px; padding-top: 0; }
+}
+
+@media (max-width: 760px) {
+  .landing-hero, .landing-about, .landing-contact { grid-template-columns: 1fr; }
+  .landing .header-actions { flex-wrap: wrap; }
+  .landing .header-actions .button { padding-inline: 12px; }
+}

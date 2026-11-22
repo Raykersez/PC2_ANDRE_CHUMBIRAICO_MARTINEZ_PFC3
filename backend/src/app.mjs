@@ -8,6 +8,7 @@ const sessionMs = 8 * 60 * 60 * 1000;
 const cookieName = 'mercaorden_session';
 const maxFileSize = 2 * 1024 * 1024;
 const categories = ['Frutas', 'Verduras', 'Tubérculos', 'Abarrotes', 'Otros alimentos'];
+const contactTopics = ['application', 'access', 'other'];
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 
 const fileTypes = {
@@ -23,16 +24,36 @@ class ApiError extends Error {
   }
 }
 
+function readEmail(body) {
+  return typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+}
+
+function validEmail(email) {
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 function credentials(body, signup) {
-  const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const email = readEmail(body);
   const password = typeof body?.password === 'string' ? body.password : '';
   const fields = {};
-  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fields.email = 'Ingresa un correo electrónico válido.';
+  if (!validEmail(email)) fields.email = 'Ingresa un correo electrónico válido.';
   if (!password || password.length > 128 || (signup && password.length < 10)) {
     fields.password = signup ? 'Usa entre 10 y 128 caracteres.' : 'Ingresa tu contraseña.';
   }
   if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos marcados.', fields);
   return { email, password };
+}
+
+function contactDetails(body) {
+  const email = readEmail(body);
+  const topic = body?.topic;
+  const message = typeof body?.message === 'string' ? body.message.trim() : '';
+  const fields = {};
+  if (!validEmail(email)) fields.email = 'Ingresa un correo electrónico válido.';
+  if (!contactTopics.includes(topic)) fields.topic = 'Selecciona un motivo de consulta.';
+  if (message.length < 10 || message.length > 1000) fields.message = 'Escribe entre 10 y 1000 caracteres.';
+  if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos marcados.', fields);
+  return { email, topic, message };
 }
 
 async function passwordHash(password, salt = randomBytes(16).toString('hex')) {
@@ -102,6 +123,8 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
 
   const authLimit = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false,
     handler: (_req, _res, next) => next(new ApiError(429, 'TOO_MANY_REQUESTS', 'Espera un minuto antes de volver a intentarlo.')) });
+  const contactLimit = rateLimit({ windowMs: 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false,
+    handler: (_req, _res, next) => next(new ApiError(429, 'TOO_MANY_REQUESTS', 'Espera un minuto antes de volver a enviar tu mensaje.')) });
   const json = express.json({ limit: '8kb' });
   const requireUser = (req, _res, next) => {
     const token = sessionToken(req);
@@ -121,6 +144,10 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
   }
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+  app.post('/api/contact', contactLimit, json, (req, res) => {
+    const details = contactDetails(req.body);
+    res.status(201).json({ reference: store.createContact(details) });
+  });
   app.post('/api/session/signup', authLimit, json, async (req, res) => {
     const { email, password } = credentials(req.body, true);
     const user = store.createAccount(email, await passwordHash(password));
@@ -174,7 +201,12 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
     if (error instanceof ApiError) {
       return res.status(error.status).json({ error: { code: error.code, message: error.message, fields: error.fields } });
     }
-    if (error.type === 'entity.too.large') return res.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'Reduce el tamaño de los documentos a 2 MB por archivo.' } });
+    if (error.type === 'entity.too.large') {
+      const message = _req.is('multipart/form-data')
+        ? 'Reduce el tamaño de los documentos a 2 MB por archivo.'
+        : 'Reduce el tamaño de los datos enviados y vuelve a intentarlo.';
+      return res.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message } });
+    }
     if (error.type === 'entity.parse.failed') return res.status(400).json({ error: { code: 'INVALID_BODY', message: 'Revisa los datos enviados.' } });
     console.error('Error interno en la API', error.code ?? error.name);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'No pudimos completar la operación. Inténtalo de nuevo.' } });
