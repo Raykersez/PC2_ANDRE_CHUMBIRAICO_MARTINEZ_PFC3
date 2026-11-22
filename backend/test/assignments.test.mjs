@@ -89,6 +89,31 @@ test('CLP-7 · asigna un solo puesto compatible y vigente', async (t) => {
   assert.deepEqual((await (await request(winningCode, adminA)).json()).application.assignment, assignment);
   assert.deepEqual((await (await request(losingCode, adminB, '/stalls')).json()).stalls, []);
 
+  await t.test('CLP-18 · solo el comerciante titular consulta su puesto y el motivo de observación', async () => {
+    const merchants = [first, second];
+    const owner = merchants[winner];
+    const other = merchants[1 - winner];
+    const response = await request(winningCode, owner);
+    assert.equal(response.status, 200);
+    const { application } = await response.json();
+    assert.equal(application.status, 'approved');
+    assert.deepEqual(application.assignment, { code: free.code, location: free.location, assignedAt: assignment.assignedAt });
+    assert.equal(application.decision.evaluatorId, null);
+    assert.equal((await request(winningCode, other)).status, 404);
+    assert.equal((await fetch(base + '/applications/' + winningCode)).status, 401);
+
+    const reason = 'Presenta una copia legible de tu identificación.';
+    const observed = await request(pendingCode, evaluator, '/decision', { decision: 'observed', reason });
+    assert.equal(observed.status, 200);
+    const ownObserved = await request(pendingCode, first);
+    assert.equal(ownObserved.status, 200);
+    const { application: observedApplication } = await ownObserved.json();
+    assert.equal(observedApplication.status, 'observed');
+    assert.equal(observedApplication.decision.reason, reason);
+    assert.equal(observedApplication.assignment, undefined);
+    assert.equal((await request(pendingCode, second)).status, 404);
+  });
+
   assert.equal(store.addStall({ ...free, code: 'P-02' }), true);
   const retry = await assign(winningCode, adminB, 'P-02');
   assert.equal(retry.status, 409);

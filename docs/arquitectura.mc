@@ -20,3 +20,5 @@ flowchart LR
 - Las resoluciones de [CLP-6](epicas/CLP-1/CLP-6.mc) actualizan el expediente y conservan la primera decisión en SQLite dentro de la misma transacción.
 
 - [CLP-7](epicas/CLP-1/CLP-7.mc) utiliza un catálogo de puestos. La existencia de una asignación determina la ocupación y SQLite protege la unicidad por puesto y comerciante.
+
+- En [CLP-18](epicas/CLP-1/CLP-18.mc), el expediente del titular incluye el motivo de observación o los datos de su puesto. La API comprueba identidad y titularidad antes de leer ese detalle.
