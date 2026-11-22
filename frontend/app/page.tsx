@@ -69,6 +69,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
 
       <footer className="shell footer">
         <a href="/" aria-label="Inicio de MercaOrden"><Brand /></a>
+        <a className="nav-link" href="/vehiculos">Turnos vehiculares</a>
         <span>Formalización para mercados mayoristas</span>
       </footer>
     </div>

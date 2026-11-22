@@ -25,3 +25,4 @@ flowchart LR
 - [CLP-19](epicas/CLP-1/CLP-19.mc) vincula las operaciones a una asignación aprobada del comerciante y evita duplicados mediante una clave de envío única dentro de esa asignación.
 
 - El [tarifario de estibaje](epicas/CLP-2/CLP-20.mc) almacena versiones con identificadores propios en SQLite. La consulta selecciona la última versión aplicable según la fecha local de Lima.
+- [EP-03](epicas/CLP-3/CLP-3.mc) usa ventanas en hora de Lima y turnos con códigos opacos. SQLite verifica el cupo y la placa en transacciones y registra ingreso, cancelación y salida como eventos únicos. Las cancelaciones liberan capacidad sin borrar el historial.

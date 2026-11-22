@@ -27,3 +27,4 @@ La [prueba de CLP-7](../backend/test/assignments.test.mjs) verifica autorizació
 La [prueba de CLP-19](../backend/test/operations.test.mjs) valida cantidades y unidades, simula reenvíos y comprueba el aislamiento del historial por puesto.
 
 [CLP-20](evidencias/CLP-20.mc) verifica cambios de vigencia al límite de fecha, historial de tarifas y servicios sin precio publicado.
+La [suite de EP-03](../backend/test/logistics.test.mjs) cubre filtros y límites de horario, concurrencia por cupo, permisos, cancelaciones, idempotencia del ingreso y cálculo de permanencia. Usa placas sintéticas, SQLite en memoria y reloj controlado.

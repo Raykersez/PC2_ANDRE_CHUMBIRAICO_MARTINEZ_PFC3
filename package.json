@@ -10,6 +10,7 @@
     "dev:api": "npm run dev -w backend",
     "build": "npm run build -w frontend",
     "test": "npm run test -w backend",
-    "staff": "npm run staff -w backend --"
+    "staff": "npm run staff -w backend --",
+    "logistics": "npm run logistics -w backend --"
   }
 }

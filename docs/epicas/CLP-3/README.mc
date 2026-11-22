@@ -1,5 +1,11 @@
 # EP-03 · Ordenamiento logístico y control vehicular
 
-Turnos de carga y descarga y control de acceso vehicular a bahías. [Épica CLP-3](https://pc2-andrechumbiraico-pfc3.atlassian.net/browse/CLP-3)
+Turnos de carga y descarga y control de acceso vehicular a bahías. [Épica CLP-3](CLP-3.mc)
 
-Seguimiento documental inicial. Las fichas y evidencias se incorporarán con cada HU.
+| HU | Seguimiento |
+| --- | --- |
+| [CLP-12 · Consultar ventanas de carga y descarga](CLP-12.mc) | Integración a main pendiente. |
+| [CLP-13 · Reservar turno para un vehículo](CLP-13.mc) | Integración a main pendiente. |
+| [CLP-14 · Controlar el ingreso vehicular](CLP-14.mc) | Integración a main pendiente. |
+| [CLP-21 · Cancelar un turno y liberar el cupo](CLP-21.mc) | Integración a main pendiente. |
+| [CLP-22 · Cerrar el turno con la salida del vehículo](CLP-22.mc) | Integración a main pendiente. |

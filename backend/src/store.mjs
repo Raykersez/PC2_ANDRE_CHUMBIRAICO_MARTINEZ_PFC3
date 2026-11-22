@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { logisticsStore } from './logistics-store.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { stevedoreStore } from './stevedores.mjs';
 import { tariffStore } from './tariffs.mjs';
@@ -133,6 +134,7 @@ export function openStore(filename) {
   return {
     ...stevedoreStore(db),
     ...tariffStore(db),
+    ...logisticsStore(db),
     listOperations(accountId) {
       const stall = activeStall(accountId);
       if (!stall) return { stall: null, operations: [] };

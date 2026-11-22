@@ -7,7 +7,8 @@
     "dev": "node --watch --env-file-if-exists=.env src/server.mjs",
     "start": "node --env-file-if-exists=.env src/server.mjs",
     "test": "node --test",
-    "staff": "node --env-file-if-exists=.env src/staff.mjs"
+    "staff": "node --env-file-if-exists=.env src/staff.mjs",
+    "logistics": "node --env-file-if-exists=.env src/logistics-cli.mjs"
   },
   "dependencies": {
     "express": "^5.2.1",
