@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import { api, ApiFailure } from './api';
 import { Brand, Field } from './components';
+import { CommercialOperations } from './commercial-operations';
 import { ThemeSelect } from './theme-select';
 import { StallAssignment } from './stall-assignment';
 import type { Application, Fields, User } from './types';
@@ -208,6 +209,7 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
           <nav aria-label="Navegación principal">
             <a className="nav-link" href="#tramite">Empadronamiento</a>
             <a className="nav-link" href="#expedientes">Mis solicitudes</a>
+            {user?.role === 'merchant' && <a className="nav-link" href="#operaciones">Operaciones</a>}
           </nav>
           <div className="header-actions">
             <ThemeSelect />
@@ -399,6 +401,7 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
             </section>
           </aside>
         </div>
+        {user?.role === 'merchant' && <CommercialOperations key={user.id} />}
       </main>
       <footer className="shell footer"><a href="/" aria-label="Inicio de MercaOrden"><Brand /></a><span>Formalización para mercados mayoristas</span></footer>
     </>

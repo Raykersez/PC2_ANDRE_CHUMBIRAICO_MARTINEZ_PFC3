@@ -87,6 +87,14 @@ form .button { justify-self: start; margin-top: 3px; }
 .review-check input { width: 20px; height: 20px; accent-color: var(--md-primary); }
 .review-check .field-error { flex-basis: 100%; }
 .main-panel form h3 { margin: 0; }
+.commercial-operations { margin-top: 24px; }
+.commercial-operations > .feedback { margin: 12px 0 0; }
+.commercial-operations .button.outline { margin-top: 12px; }
+.operation-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(20px, 4vw, 44px); margin-top: 20px; }
+.operation-columns form, .operation-columns h3 { margin-top: 0; }
+.operation-list { list-style: none; margin: 0; padding: 0; }
+.operation-list li { display: grid; padding: 8px 0; border-bottom: 1px solid var(--md-outline-variant); overflow-wrap: anywhere; }
+.operation-list span { color: var(--md-on-surface-variant); }
 .hint, .field-error { font-size: .85rem; }
 .hint { color: var(--md-on-surface-variant); }
 .field-error { color: var(--md-error); }
@@ -105,6 +113,7 @@ form .button { justify-self: start; margin-top: 3px; }
 .footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 22px; margin-top: 44px; border-top: 1px solid var(--md-outline-variant); color: var(--md-on-surface-variant); font-size: .9rem; }
 .footer .brand-mark { width: 32px; height: 32px; }
 @media (max-width: 760px) {
+  .operation-columns { grid-template-columns: 1fr; }
   .shell { width: min(100% - 32px, 580px); }
   .workspace { grid-template-columns: 1fr; }
   .top-content { flex-wrap: wrap; gap: 8px; padding-block: 10px; }

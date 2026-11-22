@@ -9,6 +9,13 @@ const sessionMs = 8 * 60 * 60 * 1000;
 const cookieName = 'mercaorden_session';
 const maxFileSize = 2 * 1024 * 1024;
 const contactTopics = ['application', 'access', 'other'];
+const operationUnits = [
+  { value: 'kg', label: 'Kilogramos (kg)' },
+  { value: 't', label: 'Toneladas (t)' },
+  { value: 'unidad', label: 'Unidades' },
+  { value: 'caja', label: 'Cajas' },
+  { value: 'saco', label: 'Sacos' },
+];
 const assignmentErrors = {
   APPLICATION_NOT_FOUND: [404, 'No encontramos ese expediente.'],
   APPROVAL_REQUIRED: [409, 'Solo puedes asignar un puesto a una solicitud aprobada.'],
@@ -61,6 +68,24 @@ function contactDetails(body) {
   if (message.length < 10 || message.length > 1000) fields.message = 'Escribe entre 10 y 1000 caracteres.';
   if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos marcados.', fields);
   return { email, topic, message };
+}
+
+function operationDetails(body) {
+  const { date, quantity, unit, submissionId } = body ?? {};
+  const product = typeof body?.product === 'string' ? body.product.trim() : '';
+  const fields = {};
+  const validDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    && !date.startsWith('0000') && Number.isFinite(Date.parse(date))
+    && new Date(date).toISOString().slice(0, 10) === date;
+  if (!validDate) fields.date = 'Ingresa una fecha válida.';
+  if (!product || product.length > 120) fields.product = 'Ingresa un producto de hasta 120 caracteres.';
+  if (!Number.isFinite(quantity) || quantity <= 0) fields.quantity = 'Ingresa una cantidad mayor que cero.';
+  if (!operationUnits.some((option) => option.value === unit)) fields.unit = 'Selecciona una unidad del catálogo.';
+  if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos marcados.', fields);
+  if (typeof submissionId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(submissionId)) {
+    throw new ApiError(400, 'INVALID_SUBMISSION', 'Recarga el formulario y vuelve a intentar.');
+  }
+  return { submissionId, date, product, quantity, unit };
 }
 
 async function passwordHash(password, salt = randomBytes(16).toString('hex')) {
@@ -188,6 +213,27 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
     const token = sessionToken(req);
     if (token) store.deleteSession(digest(token));
     res.clearCookie(cookieName, cookieOptions).status(204).end();
+  });
+
+  function requireMerchant(req, _res, next) {
+    if (req.user.role !== 'merchant') {
+      return next(new ApiError(403, 'MERCHANT_REQUIRED', 'Solo los comerciantes pueden registrar sus operaciones.'));
+    }
+    next();
+  }
+
+  app.get('/api/operations', requireUser, requireMerchant, (req, res) => {
+    res.json({ ...store.listOperations(req.user.id), units: operationUnits });
+  });
+  app.post('/api/operations', requireUser, requireMerchant, json, (req, res) => {
+    const result = store.createOperation(req.user.id, operationDetails(req.body));
+    if (result.error === 'ACTIVE_STALL_REQUIRED') {
+      throw new ApiError(403, result.error, 'Necesitas un puesto vigente para registrar operaciones.');
+    }
+    if (result.error === 'SUBMISSION_CONFLICT') {
+      throw new ApiError(409, result.error, 'Este envío ya se usó con otros datos. Actualiza el historial antes de reintentar.');
+    }
+    res.status(result.created ? 201 : 200).json({ operation: result.operation });
   });
 
   app.get('/api/applications', requireUser, (req, res) => res.json({ applications: store.listApplications(req.user.id) }));
