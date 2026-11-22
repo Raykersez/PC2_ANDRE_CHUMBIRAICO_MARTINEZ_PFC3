@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Brand } from '../components';
 import { ThemeSelect } from '../theme-select';
-import { VehicleWindows } from './windows';
+import { VehicleWorkspace } from './workspace';
 import './logistics.css';
 
 export const metadata: Metadata = {
@@ -24,7 +24,7 @@ export default function Vehiculos() {
           <h1>Turnos de carga y descarga</h1>
           <p>Consulta las bahías y horarios disponibles para programar tu visita al mercado mayorista.</p>
         </section>
-        <VehicleWindows />
+        <VehicleWorkspace />
       </main>
     </>
   );

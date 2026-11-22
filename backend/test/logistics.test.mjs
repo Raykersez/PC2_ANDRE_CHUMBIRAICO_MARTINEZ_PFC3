@@ -19,6 +19,22 @@ test('EP-03 · turnos de carga y descarga', async (t) => {
   const available = (day = date, operation = 'load') =>
     fetch(base + '/logistics/windows?' + new URLSearchParams({ date: day, operation }));
   const data = (bay, start, end, operation = 'load', day = date) => parseWindow([bay, day, start, end, operation, '1']);
+  async function signup(email) {
+    const response = await fetch(base + '/session/signup', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: 'Clave sintética EP-03' }),
+    });
+    assert.equal(response.status, 201);
+    return { email, cookie: response.headers.get('set-cookie').split(';')[0] };
+  }
+  function request(path, actor, body) {
+    return fetch(base + path, {
+      method: body ? 'POST' : 'GET',
+      headers: { ...(actor && { Cookie: actor.cookie }), ...(body && { 'Content-Type': 'application/json' }) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+  const book = (actor, windowId, plate) => request('/logistics/bookings', actor, { windowId, plate });
 
   await t.test('CLP-12 · filtra por fecha, operación y hora de Lima', async () => {
     assert.equal(parseWindow(['B-01', '2026-02-30', '09:00', '10:00', 'load', '1']), undefined);
@@ -40,5 +56,38 @@ test('EP-03 · turnos de carga y descarga', async (t) => {
     assert.deepEqual((await (await available('2026-11-23')).json()).windows, []);
     assert.equal((await available('2026-02-30')).status, 400);
     assert.equal((await available(date, 'otro')).status, 400);
+  });
+
+  const first = await signup('transporte1@example.invalid');
+  const second = await signup('transporte2@example.invalid');
+  const { windows: [window] } = await (await available()).json();
+  let winningBooking;
+  let holder;
+  let other;
+  await t.test('CLP-13 · reserva el último cupo una vez y evita placas superpuestas', async () => {
+    assert.equal((await book(null, window.id, 'ABC-123')).status, 401);
+    assert.equal((await book(first, window.id, 'invalida')).status, 400);
+    const attempts = await Promise.all([book(first, window.id, 'abc-123'), book(second, window.id, 'APT-456')]);
+    assert.deepEqual(attempts.map((response) => response.status).sort(), [201, 409]);
+    const index = attempts.findIndex((response) => response.status === 201);
+    holder = [first, second][index];
+    other = [second, first][index];
+    winningBooking = (await attempts[index].json()).booking;
+    assert.deepEqual(winningBooking, {
+      code: winningBooking.code, plate: ['ABC123', 'APT456'][index], bay: window.bay, operation: 'load',
+      date, startsAt: window.startsAt, endsAt: window.endsAt,
+    });
+    assert.match(winningBooking.code, /^TV-[A-F0-9]{16}$/);
+    assert.equal((await attempts[1 - index].json()).error.code, 'WINDOW_UNAVAILABLE');
+    assert.deepEqual((await (await available()).json()).windows, []);
+
+    const overlap = store.addLogisticsWindow(data('B-03', '10:30', '11:30'));
+    const duplicate = await book(other, overlap.id, winningBooking.plate);
+    assert.equal(duplicate.status, 409);
+    assert.equal((await duplicate.json()).error.code, 'PLATE_OVERLAP');
+    assert.deepEqual((await (await request('/logistics/bookings', holder)).json()).bookings, [winningBooking]);
+    assert.deepEqual((await (await request('/logistics/bookings', other)).json()).bookings, []);
+    const started = store.addLogisticsWindow(data('B-04', '09:00', '10:00'));
+    assert.equal((await book(other, started.id, 'DEF789')).status, 409);
   });
 });

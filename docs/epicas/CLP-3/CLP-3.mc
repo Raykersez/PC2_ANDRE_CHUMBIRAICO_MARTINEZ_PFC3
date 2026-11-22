@@ -5,3 +5,4 @@
 La rama de EP-03 contiene un commit por HU. El PR de integración a main usa la clave CLP-3.
 
 - [CLP-12 · Consultar ventanas de carga y descarga](CLP-12.mc)
+- [CLP-13 · Reservar turno para un vehículo](CLP-13.mc)

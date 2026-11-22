@@ -294,7 +294,7 @@ export function createApp(store, { origin = 'http://localhost:3000', now = Date.
       .type(attachment.mime).send(Buffer.from(attachment.bytes));
   });
 
-  mountLogistics(app, store, { ApiError, now });
+  mountLogistics(app, store, { ApiError, now, requireUser, json });
   app.use((_req, _res, next) => next(new ApiError(404, 'NOT_FOUND', 'No encontramos el recurso solicitado.')));
   app.use((error, _req, res, _next) => {
     if (error instanceof ApiError) {

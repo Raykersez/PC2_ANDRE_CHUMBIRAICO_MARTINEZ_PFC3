@@ -1,5 +1,11 @@
 export const operations = ['load', 'unload'];
 
+export function normalizePlate(value) {
+  if (typeof value !== 'string') return;
+  const plate = value.trim().toUpperCase();
+  if (/^[A-Z][A-Z0-9]{2}-?\d{3}$/.test(plate)) return plate.replace('-', '');
+}
+
 export function validLogisticsDate(date) {
   return typeof date === 'string' && /^[1-9]\d{3}-\d{2}-\d{2}$/.test(date)
     && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
