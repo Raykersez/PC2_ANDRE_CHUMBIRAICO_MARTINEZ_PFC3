@@ -5,6 +5,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiFailure } from './api';
 import { Brand, Field } from './components';
 import { ThemeSelect } from './theme-select';
+import { StallAssignment } from './stall-assignment';
 import type { Application, Fields, User } from './types';
 
 type AuthMode = 'signup' | 'login';
@@ -257,7 +258,7 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
             ) : receipt ? (
               <>
                 <p className="status-chip">{statusLabels[receipt.status]}</p>
-                <h2 id="form-title">{user.role === 'staff' ? 'Expediente de empadronamiento' : 'Tu expediente'}</h2>
+                <h2 id="form-title">{user.role === 'merchant' ? 'Tu expediente' : 'Expediente de empadronamiento'}</h2>
                 <dl className="receipt">
                   <div><dt>Código de solicitud</dt><dd className="code">{receipt.code}</dd></div>
                   <div><dt>Solicitante</dt><dd>{receipt.name}</dd></div>
@@ -268,11 +269,22 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
                     {receipt.decision.evaluatorId && <div><dt>ID del evaluador</dt><dd>{receipt.decision.evaluatorId}</dd></div>}
                     {receipt.decision.reason && <div><dt>Qué debes corregir</dt><dd>{receipt.decision.reason}</dd></div>}
                   </>}
+                  {receipt.assignment && <>
+                    <div><dt>Puesto ocupado</dt><dd>{receipt.assignment.code} · {receipt.assignment.location}</dd></div>
+                    <div><dt>Fecha de asignación (Lima)</dt><dd>{decisionDate.format(new Date(receipt.assignment.assignedAt))}</dd></div>
+                  </>}
                 </dl>
-                <div className="receipt-actions">
+                {user.role !== 'market_admin' && <div className="receipt-actions">
                   <a className="button tonal" href={'/api/applications/' + receipt.code + '/attachments/identity'}>Descargar identificación</a>
                   <a className="button tonal" href={'/api/applications/' + receipt.code + '/attachments/support'}>Descargar sustento</a>
-                </div>
+                </div>}
+                {user.role === 'market_admin' && receipt.status === 'approved' && !receipt.assignment && (
+                  <StallAssignment key={receipt.code} code={receipt.code} busy={busy} setBusy={setBusy}
+                    onAssigned={(assignment) => {
+                      updateReceipt({ ...receipt, assignment });
+                      setNotice('El puesto quedó asignado al comerciante.');
+                    }} />
+                )}
                 {user.role === 'staff' && receipt.status === 'pending' && !reloadRequired && (
                   <form onSubmit={(event) => saveDecision(event, receipt.code)}>
                     <h3>Resolver solicitud</h3>
@@ -301,13 +313,14 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
                   </form>
                 )}
                 <div className="receipt-actions">
-                  {reloadRequired && <button className="button filled" disabled={busy} onClick={() => loadReceipt(receipt.code)}>Recargar estado</button>}
+                  {(reloadRequired || (user.role === 'market_admin' && !receipt.assignment)) &&
+                    <button className="button outline" disabled={busy} onClick={() => loadReceipt(receipt.code)}>Recargar estado</button>}
                   <button className="button outline" disabled={busy} onClick={() => { setReceipt(null); clearFeedback(); }}>
-                    {user.role === 'staff' ? 'Consultar otro expediente' : 'Volver al formulario'}
+                    {user.role === 'merchant' ? 'Volver al formulario' : 'Consultar otro expediente'}
                   </button>
                 </div>
               </>
-            ) : user.role === 'staff' ? (
+            ) : user.role !== 'merchant' ? (
               <>
                 <h2 id="form-title">Consultar expediente</h2>
                 <p className="secondary">Ingresa el código que recibió el comerciante.</p>

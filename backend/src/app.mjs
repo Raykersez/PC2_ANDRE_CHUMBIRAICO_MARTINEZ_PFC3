@@ -2,13 +2,20 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
+import { categories, stallCodePattern } from './store.mjs';
 
 const deriveKey = promisify(scrypt);
 const sessionMs = 8 * 60 * 60 * 1000;
 const cookieName = 'mercaorden_session';
 const maxFileSize = 2 * 1024 * 1024;
-const categories = ['Frutas', 'Verduras', 'Tubérculos', 'Abarrotes', 'Otros alimentos'];
 const contactTopics = ['application', 'access', 'other'];
+const assignmentErrors = {
+  APPLICATION_NOT_FOUND: [404, 'No encontramos ese expediente.'],
+  APPROVAL_REQUIRED: [409, 'Solo puedes asignar un puesto a una solicitud aprobada.'],
+  MERCHANT_ASSIGNED: [409, 'Este comerciante ya tiene un puesto vigente.'],
+  STALL_UNAVAILABLE: [409, 'El puesto ya no está disponible. Actualiza la lista y elige otro.'],
+  STALL_INCOMPATIBLE: [409, 'El puesto no es compatible con el rubro del comerciante.'],
+};
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 
 const fileTypes = {
@@ -133,6 +140,18 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
     req.user = user;
     next();
   };
+  const requireMarketAdmin = (req, _res, next) => {
+    if (req.user.role !== 'market_admin') {
+      return next(new ApiError(403, 'MARKET_ADMIN_REQUIRED', 'Solo el administrador del mercado puede asignar puestos.'));
+    }
+    next();
+  };
+
+  function checkAssignment(result) {
+    if (!result.error) return;
+    const [status, message] = assignmentErrors[result.error];
+    throw new ApiError(status, result.error, message);
+  }
 
   function setSession(req, res, user, status) {
     const oldToken = sessionToken(req);
@@ -188,6 +207,20 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
     const application = store.findApplication(req.params.code.toUpperCase(), req.user);
     if (!application) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente en tu cuenta.');
     res.json({ application });
+  });
+  app.get('/api/applications/:code/stalls', requireUser, requireMarketAdmin, (req, res) => {
+    const result = store.listAvailableStalls(req.params.code.toUpperCase());
+    checkAssignment(result);
+    res.json(result);
+  });
+  app.post('/api/applications/:code/assignment', requireUser, requireMarketAdmin, json, (req, res) => {
+    const stallCode = typeof req.body?.stallCode === 'string' ? req.body.stallCode : '';
+    if (!stallCodePattern.test(stallCode)) {
+      throw new ApiError(400, 'INVALID_FIELDS', 'Selecciona un puesto disponible.', { stallCode: 'Selecciona un puesto.' });
+    }
+    const result = store.assignStall(req.params.code.toUpperCase(), stallCode, req.user.id);
+    checkAssignment(result);
+    res.status(201).json(result);
   });
   app.post('/api/applications/:code/decision', requireUser, json, (req, res) => {
     if (req.user.role !== 'staff') throw new ApiError(403, 'EVALUATOR_REQUIRED', 'Solo el evaluador municipal puede resolver solicitudes.');
