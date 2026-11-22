@@ -22,13 +22,32 @@ export function logisticsStore(db) {
     CREATE INDEX IF NOT EXISTS logistics_bookings_window ON logistics_bookings(window_id);
     CREATE INDEX IF NOT EXISTS logistics_bookings_plate ON logistics_bookings(plate);
     CREATE INDEX IF NOT EXISTS logistics_bookings_owner ON logistics_bookings(owner_id);
+    CREATE TABLE IF NOT EXISTS logistics_access_agents (
+      account_id TEXT PRIMARY KEY REFERENCES accounts(id)
+    );
+    CREATE TABLE IF NOT EXISTS logistics_entries (
+      booking_code TEXT PRIMARY KEY REFERENCES logistics_bookings(code),
+      agent_id TEXT NOT NULL REFERENCES accounts(id),
+      entered_at INTEGER NOT NULL
+    );
   `);
 
-  const bookingFields = `b.code, b.plate, w.date, w.operation, w.bay, w.starts_at AS startsAt, w.ends_at AS endsAt`;
+  const bookingFields = `b.code, b.plate, w.date, w.operation, w.bay, w.starts_at AS startsAt,
+    w.ends_at AS endsAt, e.entered_at AS enteredAt`;
+  const bookingsWithWindow = `FROM logistics_bookings b JOIN logistics_windows w ON w.id = b.window_id
+    LEFT JOIN logistics_entries e ON e.booking_code = b.code`;
 
   function findBooking(code) {
-    return db.prepare(`SELECT ${bookingFields} FROM logistics_bookings b
-      JOIN logistics_windows w ON w.id = b.window_id WHERE b.code = ?`).get(code);
+    return db.prepare(`SELECT ${bookingFields} ${bookingsWithWindow} WHERE b.code = ?`).get(code);
+  }
+
+  function checkLogisticsEntry(code, plate, now) {
+    const booking = findBooking(code);
+    if (!booking) return { error: 'BOOKING_NOT_FOUND' };
+    if (booking.plate !== plate) return { error: 'PLATE_MISMATCH' };
+    if (booking.enteredAt !== null) return { booking, repeated: true };
+    if (now < booking.startsAt || now >= booking.endsAt) return { error: 'OUTSIDE_WINDOW' };
+    return { booking, repeated: false };
   }
 
   function book(ownerId, windowId, plate, now) {
@@ -45,9 +64,35 @@ export function logisticsStore(db) {
   }
 
   return {
+    isLogisticsAgent(accountId) {
+      return Boolean(db.prepare('SELECT 1 FROM logistics_access_agents WHERE account_id = ?').get(accountId));
+    },
+    grantLogisticsAgent(email) {
+      const account = db.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
+      if (!account) return false;
+      db.prepare('INSERT INTO logistics_access_agents VALUES (?) ON CONFLICT DO NOTHING').run(account.id);
+      return true;
+    },
+    checkLogisticsEntry,
+    recordLogisticsEntry(code, plate, accountId, clock) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const now = clock();
+        const result = checkLogisticsEntry(code, plate, now);
+        if (result.booking && !result.repeated) {
+          db.prepare('INSERT INTO logistics_entries VALUES (?, ?, ?)').run(code, accountId, now);
+          result.booking.enteredAt = now;
+        }
+        db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
     listLogisticsBookings(ownerId) {
-      return db.prepare(`SELECT ${bookingFields} FROM logistics_bookings b
-        JOIN logistics_windows w ON w.id = b.window_id WHERE b.owner_id = ? ORDER BY w.starts_at DESC, b.code`).all(ownerId);
+      return db.prepare(`SELECT ${bookingFields} ${bookingsWithWindow}
+        WHERE b.owner_id = ? ORDER BY w.starts_at DESC, b.code`).all(ownerId);
     },
     reserveLogisticsWindow(ownerId, windowId, plate, now) {
       db.exec('BEGIN IMMEDIATE');

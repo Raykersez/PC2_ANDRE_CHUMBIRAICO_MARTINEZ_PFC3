@@ -4,28 +4,11 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiFailure } from '../api';
 import { Field } from '../components';
 import type { Fields } from '../types';
-import { clockRange, operationLabels, VehicleWindows } from './windows';
+import { VehicleWindows } from './windows';
+import { BookingSummary, type VehicleBooking } from './booking-summary';
+import { VehicleAccess } from './access';
 
-export type VehicleBooking = {
-  code: string; plate: string; date: string; operation: string; bay: string;
-  startsAt: number; endsAt: number;
-};
-
-const bookingDate = new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeZone: 'UTC' });
-export const plateLabel = (plate: string) => plate.slice(0, 3) + '-' + plate.slice(3);
-
-export function BookingSummary({ booking }: { booking: VehicleBooking }) {
-  return (
-    <>
-      <strong className="code">{booking.code}</strong>
-      <span>{plateLabel(booking.plate)}</span>
-      <span>{operationLabels[booking.operation]} · Bahía {booking.bay}</span>
-      <span>{bookingDate.format(new Date(booking.date))} · {clockRange(booking.startsAt, booking.endsAt)} (Lima)</span>
-    </>
-  );
-}
-
-type Account = { bookings: VehicleBooking[] };
+type Account = { bookings: VehicleBooking[]; canControlAccess: boolean };
 
 export function VehicleWorkspace() {
   const [account, setAccount] = useState<Account | null>(null);
@@ -130,6 +113,7 @@ export function VehicleWorkspace() {
           </>
         )}
       </section>
+      {account?.canControlAccess && <VehicleAccess />}
     </>
   );
 }

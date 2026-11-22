@@ -3,17 +3,19 @@ import { parseWindow } from './logistics-time.mjs';
 
 const [action, ...args] = process.argv.slice(2);
 const window = action === '--ventana' ? parseWindow(args) : undefined;
-if (!window) {
+const agent = action === '--agente' && args.length === 1 ? args[0].trim().toLowerCase() : '';
+if (!window && !agent) {
   console.error('Uso: npm run logistics -- --ventana B-01 AAAA-MM-DD HH:mm HH:mm load|unload cupos');
+  console.error('     npm run logistics -- --agente correo-de-la-cuenta');
   process.exit(1);
 }
 
 const store = openStore(process.env.DATABASE_FILE || '.data/mercaorden.sqlite');
 try {
-  const result = store.addLogisticsWindow(window);
-  if (result) console.log('Ventana registrada: ' + result.id);
+  const result = window ? store.addLogisticsWindow(window) : store.grantLogisticsAgent(agent);
+  if (result) console.log(window ? 'Ventana registrada: ' + result.id : 'Cuenta habilitada como agente de acceso.');
   else {
-    console.error('La bahía ya tiene una ventana que coincide con ese horario.');
+    console.error(window ? 'La bahía ya tiene una ventana que coincide con ese horario.' : 'La cuenta aún no está registrada.');
     process.exitCode = 1;
   }
 } finally {

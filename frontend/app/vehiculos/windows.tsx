@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { api, ApiFailure } from '../api';
 import { Field } from '../components';
-import type { VehicleBooking } from './workspace';
+import type { VehicleBooking } from './booking-summary';
 
 export type WindowOption = { id: number; bay: string; startsAt: number; endsAt: number; remaining: number };
 export type WindowQuery = { date: string; operation: string };

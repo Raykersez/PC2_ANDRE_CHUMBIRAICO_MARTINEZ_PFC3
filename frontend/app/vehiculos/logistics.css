@@ -7,3 +7,4 @@
 .logistics-list li span { color: var(--md-on-surface-variant); }
 .logistics-signout { margin-top: 18px; }
 .logistics-feedback a { text-decoration: underline; }
+.access-details { display: grid; gap: 4px; padding: 12px 16px; background: var(--md-surface-container-high); border-radius: var(--md-radius-medium); }

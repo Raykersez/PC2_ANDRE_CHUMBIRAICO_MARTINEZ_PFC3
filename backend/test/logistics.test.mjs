@@ -75,7 +75,7 @@ test('EP-03 · turnos de carga y descarga', async (t) => {
     winningBooking = (await attempts[index].json()).booking;
     assert.deepEqual(winningBooking, {
       code: winningBooking.code, plate: ['ABC123', 'APT456'][index], bay: window.bay, operation: 'load',
-      date, startsAt: window.startsAt, endsAt: window.endsAt,
+      date, startsAt: window.startsAt, endsAt: window.endsAt, enteredAt: null,
     });
     assert.match(winningBooking.code, /^TV-[A-F0-9]{16}$/);
     assert.equal((await attempts[1 - index].json()).error.code, 'WINDOW_UNAVAILABLE');
@@ -89,5 +89,40 @@ test('EP-03 · turnos de carga y descarga', async (t) => {
     assert.deepEqual((await (await request('/logistics/bookings', other)).json()).bookings, []);
     const started = store.addLogisticsWindow(data('B-04', '09:00', '10:00'));
     assert.equal((await book(other, started.id, 'DEF789')).status, 409);
+  });
+
+  const agent = await signup('agente@example.invalid');
+  await t.test('CLP-14 · verifica la placa y el horario y registra el ingreso una sola vez', async () => {
+    assert.equal(store.grantLogisticsAgent(agent.email), true);
+    const route = (step, actor = agent, body = { code: winningBooking.code, plate: winningBooking.plate }) =>
+      request('/logistics/access/' + step, actor, body);
+    assert.equal((await route('entry', holder)).status, 403);
+    assert.equal((await route('check', null)).status, 401);
+    const early = await route('check');
+    assert.equal(early.status, 409);
+    assert.equal((await early.json()).error.code, 'OUTSIDE_WINDOW');
+    now = window.startsAt;
+    const mismatch = await route('check', agent, { code: winningBooking.code, plate: 'ZZZ-999' });
+    assert.equal(mismatch.status, 409);
+    assert.equal((await mismatch.json()).error.code, 'PLATE_MISMATCH');
+    const checked = await route('check');
+    assert.equal(checked.status, 200);
+    assert.equal((await checked.json()).booking.enteredAt, null);
+    now = window.endsAt;
+    assert.equal((await route('entry')).status, 409);
+    assert.equal((await (await request('/logistics/bookings', holder)).json()).bookings[0].enteredAt, null);
+
+    now = window.startsAt + 60_000;
+    const attempts = await Promise.all([route('entry'), route('entry')]);
+    assert.deepEqual(attempts.map((response) => response.status), [200, 200]);
+    const entries = await Promise.all(attempts.map((response) => response.json()));
+    assert.deepEqual(entries.map(({ repeated }) => repeated).sort(), [false, true]);
+    assert.equal(entries[0].booking.bay, window.bay);
+    assert.equal(entries[0].booking.enteredAt, now);
+    assert.equal(entries[1].booking.enteredAt, now);
+    now = window.endsAt + 60_000;
+    const retry = await (await route('entry')).json();
+    assert.equal(retry.repeated, true);
+    assert.equal(retry.booking.enteredAt, window.startsAt + 60_000);
   });
 });
