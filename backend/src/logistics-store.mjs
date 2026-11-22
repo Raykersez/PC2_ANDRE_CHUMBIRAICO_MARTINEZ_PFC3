@@ -30,21 +30,41 @@ export function logisticsStore(db) {
       agent_id TEXT NOT NULL REFERENCES accounts(id),
       entered_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS logistics_cancellations (
+      booking_code TEXT PRIMARY KEY REFERENCES logistics_bookings(code),
+      cancelled_at INTEGER NOT NULL
+    );
   `);
 
   const bookingFields = `b.code, b.plate, w.date, w.operation, w.bay, w.starts_at AS startsAt,
-    w.ends_at AS endsAt, e.entered_at AS enteredAt`;
+    w.ends_at AS endsAt, e.entered_at AS enteredAt, c.cancelled_at AS cancelledAt`;
   const bookingsWithWindow = `FROM logistics_bookings b JOIN logistics_windows w ON w.id = b.window_id
-    LEFT JOIN logistics_entries e ON e.booking_code = b.code`;
+    LEFT JOIN logistics_entries e ON e.booking_code = b.code
+    LEFT JOIN logistics_cancellations c ON c.booking_code = b.code`;
+  const isNotCancelled = 'NOT EXISTS (SELECT 1 FROM logistics_cancellations WHERE booking_code = b.code)';
 
-  function findBooking(code) {
-    return db.prepare(`SELECT ${bookingFields} ${bookingsWithWindow} WHERE b.code = ?`).get(code);
+  function withWrite(write) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = write();
+      db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  function findBooking(code, ownerId = null) {
+    return db.prepare(`SELECT ${bookingFields} ${bookingsWithWindow} WHERE b.code = ? AND (? IS NULL OR b.owner_id = ?)`)
+      .get(code, ownerId, ownerId);
   }
 
   function checkLogisticsEntry(code, plate, now) {
     const booking = findBooking(code);
     if (!booking) return { error: 'BOOKING_NOT_FOUND' };
     if (booking.plate !== plate) return { error: 'PLATE_MISMATCH' };
+    if (booking.cancelledAt !== null) return { error: 'BOOKING_CANCELLED' };
     if (booking.enteredAt !== null) return { booking, repeated: true };
     if (now < booking.startsAt || now >= booking.endsAt) return { error: 'OUTSIDE_WINDOW' };
     return { booking, repeated: false };
@@ -53,10 +73,11 @@ export function logisticsStore(db) {
   function book(ownerId, windowId, plate, now) {
     const window = db.prepare('SELECT starts_at, ends_at, capacity FROM logistics_windows WHERE id = ?').get(windowId);
     if (!window || window.starts_at <= now) return { error: 'WINDOW_UNAVAILABLE' };
-    const taken = db.prepare('SELECT count(*) AS count FROM logistics_bookings WHERE window_id = ?').get(windowId);
+    const taken = db.prepare(`SELECT count(*) AS count FROM logistics_bookings b
+      WHERE b.window_id = ? AND ${isNotCancelled}`).get(windowId);
     if (taken.count >= window.capacity) return { error: 'WINDOW_UNAVAILABLE' };
     const overlap = db.prepare(`SELECT 1 FROM logistics_bookings b JOIN logistics_windows w ON w.id = b.window_id
-      WHERE b.plate = ? AND w.starts_at < ? AND w.ends_at > ? LIMIT 1`).get(plate, window.ends_at, window.starts_at);
+      WHERE b.plate = ? AND w.starts_at < ? AND w.ends_at > ? AND ${isNotCancelled} LIMIT 1`).get(plate, window.ends_at, window.starts_at);
     if (overlap) return { error: 'PLATE_OVERLAP' };
     const code = 'TV-' + randomBytes(8).toString('hex').toUpperCase();
     db.prepare('INSERT INTO logistics_bookings VALUES (?, ?, ?, ?, ?)').run(code, ownerId, windowId, plate, now);
@@ -75,35 +96,34 @@ export function logisticsStore(db) {
     },
     checkLogisticsEntry,
     recordLogisticsEntry(code, plate, accountId, clock) {
-      db.exec('BEGIN IMMEDIATE');
-      try {
+      return withWrite(() => {
         const now = clock();
         const result = checkLogisticsEntry(code, plate, now);
         if (result.booking && !result.repeated) {
           db.prepare('INSERT INTO logistics_entries VALUES (?, ?, ?)').run(code, accountId, now);
           result.booking.enteredAt = now;
         }
-        db.exec('COMMIT');
         return result;
-      } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
-      }
+      });
     },
     listLogisticsBookings(ownerId) {
       return db.prepare(`SELECT ${bookingFields} ${bookingsWithWindow}
         WHERE b.owner_id = ? ORDER BY w.starts_at DESC, b.code`).all(ownerId);
     },
-    reserveLogisticsWindow(ownerId, windowId, plate, now) {
-      db.exec('BEGIN IMMEDIATE');
-      try {
-        const result = book(ownerId, windowId, plate, now);
-        db.exec('COMMIT');
-        return result;
-      } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
-      }
+    reserveLogisticsWindow(ownerId, windowId, plate, clock) {
+      return withWrite(() => book(ownerId, windowId, plate, clock()));
+    },
+    cancelLogisticsBooking(code, ownerId, clock) {
+      return withWrite(() => {
+        const booking = findBooking(code, ownerId);
+        if (!booking) return { error: 'BOOKING_NOT_FOUND' };
+        if (booking.cancelledAt !== null) return { booking, repeated: true };
+        if (booking.enteredAt !== null) return { error: 'ENTRY_ALREADY_RECORDED' };
+        const now = clock();
+        if (booking.startsAt <= now) return { error: 'WINDOW_STARTED' };
+        db.prepare('INSERT INTO logistics_cancellations VALUES (?, ?)').run(code, now);
+        return { booking: { ...booking, cancelledAt: now }, repeated: false };
+      });
     },
     addLogisticsWindow({ bay, date, operation, startsAt, endsAt, capacity }) {
       return db.prepare(`INSERT INTO logistics_windows (bay, date, operation, starts_at, ends_at, capacity)
@@ -113,7 +133,7 @@ export function logisticsStore(db) {
     },
     listLogisticsWindows(date, operation, now) {
       return db.prepare(`SELECT id, bay, starts_at AS startsAt, ends_at AS endsAt,
-        capacity - (SELECT count(*) FROM logistics_bookings WHERE window_id = w.id) AS remaining
+        capacity - (SELECT count(*) FROM logistics_bookings b WHERE b.window_id = w.id AND ${isNotCancelled}) AS remaining
         FROM logistics_windows w WHERE date = ? AND operation = ? AND starts_at > ? AND remaining > 0
         ORDER BY starts_at, bay, id`).all(date, operation, now);
     },

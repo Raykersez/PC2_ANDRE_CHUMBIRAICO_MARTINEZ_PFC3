@@ -75,7 +75,7 @@ test('EP-03 · turnos de carga y descarga', async (t) => {
     winningBooking = (await attempts[index].json()).booking;
     assert.deepEqual(winningBooking, {
       code: winningBooking.code, plate: ['ABC123', 'APT456'][index], bay: window.bay, operation: 'load',
-      date, startsAt: window.startsAt, endsAt: window.endsAt, enteredAt: null,
+      date, startsAt: window.startsAt, endsAt: window.endsAt, enteredAt: null, cancelledAt: null,
     });
     assert.match(winningBooking.code, /^TV-[A-F0-9]{16}$/);
     assert.equal((await attempts[1 - index].json()).error.code, 'WINDOW_UNAVAILABLE');
@@ -124,5 +124,43 @@ test('EP-03 · turnos de carga y descarga', async (t) => {
     const retry = await (await route('entry')).json();
     assert.equal(retry.repeated, true);
     assert.equal(retry.booking.enteredAt, window.startsAt + 60_000);
+  });
+
+  await t.test('CLP-21 · solo el titular cancela antes del inicio y libera un único cupo', async () => {
+    const upcoming = data('B-05', '12:00', '13:00');
+    const { id } = store.addLogisticsWindow(upcoming);
+    const response = await book(holder, id, 'ZZZ-234');
+    assert.equal(response.status, 201);
+    const { booking } = await response.json();
+    const cancel = (actor, code) => request('/logistics/bookings/' + code + '/cancel', actor, {});
+
+    assert.equal((await cancel(null, booking.code)).status, 401);
+    assert.equal((await cancel(other, booking.code)).status, 404);
+    assert.ok(!(await (await available()).json()).windows.some((item) => item.id === id));
+    const entered = await cancel(holder, winningBooking.code);
+    assert.equal(entered.status, 409);
+    assert.equal((await entered.json()).error.code, 'ENTRY_ALREADY_RECORDED');
+    const attempts = await Promise.all([cancel(holder, booking.code), cancel(holder, booking.code)]);
+    assert.deepEqual(attempts.map(({ status }) => status), [200, 200]);
+    const cancelled = await Promise.all(attempts.map((result) => result.json()));
+    assert.deepEqual(cancelled.map(({ repeated }) => repeated).sort(), [false, true]);
+    assert.equal(cancelled[0].booking.cancelledAt, now);
+    assert.equal(cancelled[1].booking.cancelledAt, now);
+    const released = (await (await available()).json()).windows.find((item) => item.id === id);
+    assert.equal(released.remaining, 1);
+
+    const replacement = await book(other, id, booking.plate);
+    assert.equal(replacement.status, 201);
+    assert.equal((await book(holder, id, 'YTR-789')).status, 409);
+    const rebooked = (await replacement.json()).booking;
+    now = upcoming.startsAt;
+    const started = await cancel(other, rebooked.code);
+    assert.equal(started.status, 409);
+    assert.equal((await started.json()).error.code, 'WINDOW_STARTED');
+    const deniedEntry = await request('/logistics/access/entry', agent, { code: booking.code, plate: booking.plate });
+    assert.equal(deniedEntry.status, 409);
+    assert.equal((await deniedEntry.json()).error.code, 'BOOKING_CANCELLED');
+    const history = (await (await request('/logistics/bookings', holder)).json()).bookings;
+    assert.equal(history.find((item) => item.code === booking.code).cancelledAt, cancelled[0].booking.cancelledAt);
   });
 });

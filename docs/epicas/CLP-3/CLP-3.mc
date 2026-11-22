@@ -7,3 +7,4 @@ La rama de EP-03 contiene un commit por HU. El PR de integración a main usa la 
 - [CLP-12 · Consultar ventanas de carga y descarga](CLP-12.mc)
 - [CLP-13 · Reservar turno para un vehículo](CLP-13.mc)
 - [CLP-14 · Controlar el ingreso vehicular](CLP-14.mc)
+- [CLP-21 · Cancelar un turno y liberar el cupo](CLP-21.mc)

@@ -17,6 +17,7 @@ export function VehicleWorkspace() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [fields, setFields] = useState<Fields>({});
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -61,6 +62,7 @@ export function VehicleWorkspace() {
     try {
       await api('/session', { method: 'DELETE' });
       setAccount(null);
+      setNotice('');
     } catch (error) {
       showError(error);
     } finally {
@@ -74,18 +76,45 @@ export function VehicleWorkspace() {
     });
   }
 
+  async function cancelBooking(booking: VehicleBooking) {
+    if (busy || !window.confirm('¿Cancelar este turno? Su cupo quedará disponible para otro vehículo.')) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const { booking: cancelled } = await api<{ booking: VehicleBooking }>('/logistics/bookings/' + encodeURIComponent(booking.code) + '/cancel',
+        { method: 'POST' });
+      setAccount((current) => current && {
+        ...current, bookings: current.bookings.map((item) => item.code === cancelled.code ? cancelled : item),
+      });
+      setNotice('Turno cancelado. El cupo quedó disponible.');
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <VehicleWindows authenticated={Boolean(account)} onConfirmed={confirmed} />
       <section className="panel main-panel logistics-panel" id="mis-turnos" aria-labelledby="bookings-title">
         <h2 id="bookings-title">Mis turnos</h2>
         {error && <p className="feedback error logistics-feedback" role="alert">{error}</p>}
+        {notice && <p className="feedback success logistics-feedback" role="status">{notice}</p>}
         {loading ? <p className="secondary" role="status">Consultando tu sesión…</p> : account ? (
           <>
             {account.bookings.length ? (
               <ul className="logistics-list">
                 {account.bookings.map((booking) => (
-                  <li key={booking.code}><BookingSummary booking={booking} /></li>
+                  <li key={booking.code}>
+                    <BookingSummary booking={booking} />
+                    {booking.cancelledAt === null && booking.enteredAt === null && booking.startsAt > Date.now() && (
+                      <button className="button outline" type="button" disabled={busy} onClick={() => cancelBooking(booking)}>
+                        Cancelar turno {booking.code}
+                      </button>
+                    )}
+                  </li>
                 ))}
               </ul>
             ) : <p className="secondary">Aún no tienes turnos reservados.</p>}

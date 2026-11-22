@@ -8,3 +8,4 @@
 .logistics-signout { margin-top: 18px; }
 .logistics-feedback a { text-decoration: underline; }
 .access-details { display: grid; gap: 4px; padding: 12px 16px; background: var(--md-surface-container-high); border-radius: var(--md-radius-medium); }
+.logistics-status { margin: 0; width: fit-content; }
