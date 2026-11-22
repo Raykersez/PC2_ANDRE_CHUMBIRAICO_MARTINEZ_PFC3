@@ -97,7 +97,7 @@ function sessionToken(req) {
   return req.headers.cookie?.match(/(?:^|;\s*)mercaorden_session=([0-9a-f]{64})(?:;|$)/)?.[1];
 }
 
-async function applicationForm(req) {
+async function applicationForm(req, { requireCategory = true } = {}) {
   if (!Buffer.isBuffer(req.body)) throw new ApiError(415, 'UNSUPPORTED_FORM', 'Envía el formulario con sus documentos adjuntos.');
   let form;
   try {
@@ -117,7 +117,7 @@ async function applicationForm(req) {
   if (name.length < 3 || name.length > 120) fields.name = 'Ingresa tus nombres y apellidos, entre 3 y 120 caracteres.';
   const validDocument = documentType === 'DNI' ? /^\d{8}$/.test(document) : documentType === 'CE' && /^\d{9,12}$/.test(document);
   if (!validDocument) fields.document = 'Ingresa 8 dígitos para el DNI o entre 9 y 12 para el carné de extranjería.';
-  if (!categories.includes(category)) fields.category = 'Selecciona el rubro de tu negocio.';
+  if (requireCategory && !categories.includes(category)) fields.category = 'Selecciona el rubro de tu negocio.';
   const attachments = [];
 
   for (const kind of ['identity', 'support']) {
@@ -237,6 +237,26 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
   });
 
   app.get('/api/applications', requireUser, (req, res) => res.json({ applications: store.listApplications(req.user.id) }));
+  app.get('/api/stevedores', requireUser, (req, res) => res.json({ records: store.listStevedoreCases(req.user.id) }));
+  app.post('/api/stevedores', requireUser, express.raw({ type: 'multipart/form-data', limit: '5mb' }), async (req, res) => {
+    const { data, attachments } = await applicationForm(req, { requireCategory: false });
+    const record = store.createStevedoreCase(req.user.id, data, attachments);
+    if (!record) {
+      throw new ApiError(409, 'ACTIVE_STEVEDORE_CASE', 'Ya existe un expediente activo para ese documento. Continúa el trámite desde la cuenta con que lo registraste.');
+    }
+    res.status(201).json({ record });
+  });
+  app.get('/api/stevedores/:code', requireUser, (req, res) => {
+    const record = store.findStevedoreCase(req.params.code.toUpperCase(), req.user.id);
+    if (!record) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente.');
+    res.json({ record });
+  });
+  app.get('/api/stevedores/:code/attachments/:kind', requireUser, (req, res) => {
+    const file = store.findStevedoreAttachment(req.params.code.toUpperCase(), req.params.kind, req.user.id);
+    if (!file) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese documento.');
+    res.attachment(`${req.params.kind === 'identity' ? 'identidad' : 'sustento-laboral'}.${fileTypes[file.mime].extension}`)
+      .type(file.mime).send(Buffer.from(file.bytes));
+  });
   app.post('/api/applications', requireUser, express.raw({ type: 'multipart/form-data', limit: '5mb' }), async (req, res) => {
     if (req.user.role !== 'merchant') throw new ApiError(403, 'MERCHANT_REQUIRED', 'Solo los comerciantes pueden iniciar una solicitud.');
     const { data, attachments } = await applicationForm(req);
