@@ -1,6 +1,6 @@
 import { isCalendarDate } from './calendar.mjs';
 
-const serviceCodePattern = /^[A-Z0-9][A-Z0-9-]{0,31}$/;
+export const serviceCodePattern = /^[A-Z0-9][A-Z0-9-]{0,31}$/;
 
 export function parseTariffCommand(action, args) {
   const [rawCode, value, rawUnit, startsOn, endsOn] = args;
@@ -45,7 +45,7 @@ export function tariffStore(db) {
         SELECT code, ?, ?, ?, ? FROM stevedore_services WHERE code = ?
         ON CONFLICT(service_code, starts_on) DO NOTHING RETURNING id`).get(cents, unit, startsOn, endsOn, code);
     },
-    listStevedoreTariffs(asOf) {
+    listStevedoreTariffs(asOf, serviceCode = null) {
       const rows = db.prepare(`SELECT s.code, s.name, t.id, t.amount_cents AS cents,
         t.unit, t.starts_on AS startsOn, t.ends_on AS endsOn
         FROM stevedore_services s
@@ -54,7 +54,8 @@ export function tariffStore(db) {
           WHERE latest.service_code = s.code AND latest.starts_on <= ?
           ORDER BY latest.starts_on DESC LIMIT 1
         ) AND (t.ends_on IS NULL OR t.ends_on > ?)
-        ORDER BY s.name, s.code`).all(asOf, asOf);
+        WHERE (? IS NULL OR s.code = ?)
+        ORDER BY s.name, s.code`).all(asOf, asOf, serviceCode, serviceCode);
       return rows.map(({ code, name, id, cents, unit, startsOn, endsOn }) => ({
         code, name, rate: id === null ? null : { id, cents, unit, startsOn, endsOn },
       }));

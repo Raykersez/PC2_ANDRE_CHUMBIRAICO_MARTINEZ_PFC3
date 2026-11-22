@@ -8,3 +8,4 @@ El Sprint 2 se desarrolla en una sola rama de la épica, con un commit por HU. E
 - [CLP-9 · Verificar identidad y documentación](CLP-9.mc)
 - [CLP-10 · Emitir y validar una credencial QR](CLP-10.mc)
 - [CLP-20 · Consultar el tarifario oficial de estibaje](CLP-20.mc)
+- [CLP-11 · Asignar servicios de estibaje con tarifa trazable](CLP-11.mc)

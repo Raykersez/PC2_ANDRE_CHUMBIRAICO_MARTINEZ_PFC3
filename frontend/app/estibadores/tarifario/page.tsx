@@ -17,6 +17,7 @@ export default function Tarifario() {
           <a href="/" aria-label="Inicio de MercaOrden"><Brand /></a>
           <nav aria-label="Navegación principal">
             <a className="nav-link" href="/estibadores">Estibadores</a>
+            <a className="nav-link" href="/estibadores/servicios">Solicitar servicio</a>
           </nav>
           <ThemeSelect />
         </div>

@@ -8,3 +8,4 @@ Registro y verificación documental, credenciales QR, tarifario y asignación tr
 | [CLP-9 · Verificar identidad y documentación](CLP-9.mc) | Integración a main pendiente. |
 | [CLP-10 · Emitir y validar una credencial QR](CLP-10.mc) | Integración a main pendiente. |
 | [CLP-20 · Consultar el tarifario oficial de estibaje](CLP-20.mc) | Integración a main pendiente. |
+| [CLP-11 · Asignar servicios de estibaje con tarifa trazable](CLP-11.mc) | Integración a main pendiente. |

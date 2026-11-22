@@ -8,6 +8,7 @@ import { CommercialOperations } from './commercial-operations';
 import { ThemeSelect } from './theme-select';
 import { StallAssignment } from './stall-assignment';
 import { StevedoreCases } from './stevedore-cases';
+import { StevedoreServices } from './stevedore-services';
 import type { Application, Fields, User } from './types';
 
 type AuthMode = 'signup' | 'login';
@@ -21,9 +22,10 @@ const statusLabels = { pending: 'Pendiente de revisión', approved: 'Aprobada', 
 
 export function Portal({ initialMode = 'signup', service = 'merchants' }: {
   initialMode?: AuthMode;
-  service?: 'merchants' | 'stevedores';
+  service?: 'merchants' | 'stevedores' | 'stevedore-services';
 }) {
-  const stevedores = service === 'stevedores';
+  const stevedores = service !== 'merchants';
+  const serviceRequests = service === 'stevedore-services';
   const [user, setUser] = useState<User | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [receipt, setReceipt] = useState<Application | null>(null);
@@ -215,8 +217,9 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
           <a href="/" aria-label="Inicio de MercaOrden"><Brand /></a>
           <nav aria-label="Navegación principal">
             <a className="nav-link" href={stevedores ? '/empadronamiento' : '#tramite'}>Empadronamiento</a>
-            <a className="nav-link" href={stevedores ? '#tramite' : '/estibadores'}>Estibadores</a>
+            <a className="nav-link" href={service === 'stevedores' ? '#tramite' : '/estibadores'}>Estibadores</a>
             {stevedores && <a className="nav-link" href="/estibadores/tarifario">Tarifario</a>}
+            {stevedores && <a className="nav-link" href={serviceRequests ? '#tramite' : '/estibadores/servicios'}>Servicios</a>}
             {!stevedores && <a className="nav-link" href="#expedientes">Mis solicitudes</a>}
             {!stevedores && user?.role === 'merchant' && <a className="nav-link" href="#operaciones">Operaciones</a>}
           </nav>
@@ -231,8 +234,9 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
       <main className="shell">
         <section className="intro" aria-labelledby="page-title">
           {!stevedores && <div className="eyebrow"><span aria-hidden="true" /> Servicios para comerciantes</div>}
-          <h1 id="page-title">{stevedores ? 'Certificación de estibadores' : <>Empadronamiento <em>digital.</em></>}</h1>
-          <p>{stevedores ? 'Solicita tu certificación para trabajar como estibador en el mercado mayorista.' :
+          <h1 id="page-title">{serviceRequests ? 'Servicios de estibaje' : stevedores ? 'Certificación de estibadores' : <>Empadronamiento <em>digital.</em></>}</h1>
+          <p>{serviceRequests ? 'Solicita una franja de atención y consulta su asignación con la tarifa oficial.' :
+            stevedores ? 'Solicita tu certificación para trabajar como estibador en el mercado mayorista.' :
             'Presenta tus datos y documentos para iniciar tu formalización en el mercado mayorista.'}</p>
         </section>
 
@@ -245,7 +249,8 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
             ) : !user ? (
               <>
                 <h2 id="form-title">{mode === 'signup' ? 'Inicia tu solicitud' : 'Ingresa a tu cuenta'}</h2>
-                <p className="secondary">Usa tu cuenta para enviar documentos y consultar el estado de tu expediente.</p>
+                <p className="secondary">{serviceRequests ? 'Usa tu cuenta para consultar y gestionar solicitudes de estibaje.' :
+                  'Usa tu cuenta para enviar documentos y consultar el estado de tu expediente.'}</p>
                 <div className="segmented" aria-label="Acceso a la cuenta">
                   <button type="button" aria-pressed={mode === 'signup'} disabled={busy} onClick={() => openAuth('signup')}>Crear cuenta</button>
                   <button type="button" aria-pressed={mode === 'login'} disabled={busy} onClick={() => openAuth('login')}>Iniciar sesión</button>
@@ -267,6 +272,8 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
                   <a className="button outline" href="/">Volver al inicio</a>
                 </div>
               </>
+            ) : serviceRequests ? (
+              <StevedoreServices key={user.id} canRequest={user.role === 'merchant'} busy={busy} setBusy={setBusy} />
             ) : stevedores ? (
               <StevedoreCases key={user.id} busy={busy} setBusy={setBusy} />
             ) : receipt ? (
@@ -389,7 +396,11 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
             )}
           </section>
 
-          {stevedores ? <aside className="requirements" aria-labelledby="stevedore-requirements">
+          {serviceRequests ? <aside className="requirements" aria-labelledby="service-tariffs">
+            <h2 id="service-tariffs">Tarifario de estibaje</h2>
+            <p>Consulta el monto vigente por tipo de servicio y su unidad de cobro.</p>
+            <a className="button outline" href="/estibadores/tarifario">Ver tarifas oficiales</a>
+          </aside> : stevedores ? <aside className="requirements" aria-labelledby="stevedore-requirements">
             <h2 id="stevedore-requirements">Documentos requeridos</h2>
             <ul><li>DNI o carné de extranjería</li><li>Documento de sustento laboral</li></ul>
             <p>Usa archivos PDF, JPG o PNG de hasta 2 MB cada uno.</p>
