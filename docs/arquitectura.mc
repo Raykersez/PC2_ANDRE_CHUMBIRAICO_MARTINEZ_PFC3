@@ -13,3 +13,6 @@ flowchart LR
 - [API](../backend/src/app.mjs) valida sesión, rol, formulario y adjuntos. Solo el comerciante inicia un expediente. La descarga queda reservada al titular y al personal autorizado.
 - [Persistencia](../backend/src/store.mjs) administra cuentas, sesiones, solicitudes y adjuntos. Un índice único parcial protege la unicidad de solicitudes activas por documento normalizado. La solicitud y sus adjuntos se escriben en una transacción.
 - [Flujo CLP-5](epicas/CLP-1/CLP-5.mc) documenta endpoints y evidencia. [DevOps](devops.mc) registra el alcance del entorno actual y el destino previsto.
+
+- La [landing pública](../frontend/app/page.tsx) presenta el sistema. [Empadronamiento](../frontend/app/empadronamiento/page.tsx) aloja CLP-5. Ambas rutas comparten tema, marca y estilos Material Design 3.
+- POST /api/contact valida correo, motivo y mensaje y guarda cada envío aceptado en contact_messages. La recepción se identifica con una referencia MC. La revisión se realiza desde SQLite con acceso administrativo. [CLP-25](epicas/CLP-1/CLP-25.mc)

@@ -19,6 +19,10 @@ export function openStore(filename) {
     CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), expires_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS contact_messages (
+      reference TEXT PRIMARY KEY, email TEXT NOT NULL, topic TEXT NOT NULL,
+      message TEXT NOT NULL, created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS applications (
       code TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), name TEXT NOT NULL,
       document_type TEXT NOT NULL, document_number TEXT NOT NULL, category TEXT NOT NULL,
@@ -34,6 +38,12 @@ export function openStore(filename) {
   `);
 
   return {
+    createContact({ email, topic, message }) {
+      const reference = `MC-${randomBytes(8).toString('hex').toUpperCase()}`;
+      db.prepare('INSERT INTO contact_messages (reference, email, topic, message, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(reference, email, topic, message, new Date().toISOString());
+      return reference;
+    },
     createAccount(email, passwordHash) {
       return db.prepare(`INSERT INTO accounts (id, email, password_hash) VALUES (?, ?, ?)
         ON CONFLICT(email) DO NOTHING RETURNING id, email, role`).get(randomUUID(), email, passwordHash);

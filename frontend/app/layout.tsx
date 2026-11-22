@@ -2,10 +2,10 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Empadronamiento | MercaOrden',
-  description: 'Registra y consulta tu solicitud de empadronamiento para comerciar en el mercado mayorista.',
+  title: 'MercaOrden | Formalización comercial',
+  description: 'Presenta y consulta tu solicitud de empadronamiento para el mercado mayorista.',
   openGraph: {
-    title: 'Empadronamiento | MercaOrden',
+    title: 'MercaOrden | Formalización comercial',
     description: 'Inicia tu formalización y consulta el estado de tu expediente digital.',
     locale: 'es_PE',
     type: 'website',

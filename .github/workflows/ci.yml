@@ -1,7 +1,10 @@
-name: CI
+name: CI/CD
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -20,10 +23,18 @@ jobs:
           node-version: '22'
           cache: npm
       - name: Verificar documentación de la HU
+        if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: node scripts/check-docs.mjs "$BASE_SHA" "$HEAD_SHA"
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BRANCH: ${{ github.head_ref }}
+          PR_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: |
+          node scripts/check-pr.mjs
+          node scripts/check-docs.mjs "$BASE_SHA" "$HEAD_SHA"
+      - if: github.event_name == 'push'
+        run: node scripts/check-docs.mjs
       - run: npm ci
       - run: npm test
       - run: npm run build
@@ -36,11 +47,80 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Revisar commits del pull request
+      - name: Revisar commits del cambio
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          range=()
+          if git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            range=(--log-opts="$BASE_SHA..$HEAD_SHA")
+          fi
           docker run --rm --user "$(id -u):$(id -g)" --volume "$GITHUB_WORKSPACE:/repo:ro" \
             ghcr.io/gitleaks/gitleaks:v8.30.1 git --redact \
-            --log-opts="$BASE_SHA..$HEAD_SHA" /repo
+            "${range[@]}" /repo
+
+  static-analysis:
+    name: Análisis estático
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install semgrep==1.185.0
+      - run: semgrep scan --error --metrics=off --config p/owasp-top-ten frontend/app backend/src
+
+  deploy:
+    name: Desplegar en Azure
+    if: github.event_name == 'push' && vars.AZURE_DEPLOY_ENABLED == 'true'
+    needs: [verify, gitleaks, static-analysis]
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: azure-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Compilar y empaquetar
+        env:
+          BACKEND_URL: ${{ vars.AZURE_BACKEND_URL }}
+          FRONTEND_URL: ${{ vars.AZURE_FRONTEND_URL }}
+        run: |
+          test -n "$BACKEND_URL"
+          test -n "$FRONTEND_URL"
+          npm ci
+          npm run build
+          npm prune --omit=dev
+          zip -qr -y "$RUNNER_TEMP/mercaorden.zip" package.json package-lock.json node_modules frontend backend \
+            -x '*/.env*' '*/.next/cache/*' '*/.data/*'
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_BACKEND_APP_NAME }}
+          package: ${{ runner.temp }}/mercaorden.zip
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_FRONTEND_APP_NAME }}
+          package: ${{ runner.temp }}/mercaorden.zip
+      - name: Verificar el portal y su conexión con la API
+        env:
+          FRONTEND_URL: ${{ vars.AZURE_FRONTEND_URL }}
+        run: |
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --max-time 20 "$FRONTEND_URL/" -o /dev/null
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --max-time 20 "$FRONTEND_URL/api/health" | jq -e '.status == "ok"'

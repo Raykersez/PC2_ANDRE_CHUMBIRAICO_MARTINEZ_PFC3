@@ -16,3 +16,5 @@
 Se verificaron en el portal local el alta con dos archivos sintéticos, la confirmación del expediente y el reenvío con la misma identificación en otro formato. La revisión manual específica con teclado y en una pantalla móvil queda pendiente.
 
 [Evidencia local de CLP-5](evidencias/CLP-5.mc)
+
+La [prueba de contacto](../backend/test/contact.test.mjs) verifica rechazo de un origen ajeno, validación de campos, límite de envíos y persistencia del mensaje aceptado bajo la referencia devuelta por la API. [Evidencia local de CLP-25](evidencias/CLP-25.mc)
