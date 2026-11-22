@@ -11,3 +11,5 @@
 Mi expediente permite recargar el estado para consultar una decisión o asignación reciente. La consulta forma parte del portal de empadronamiento.
 
 Integración a EP-01 y a main pendiente.
+
+[PR #5 hacia EP-01](https://github.com/Raykersez/PC2_ANDRE_CHUMBIRAICO_MARTINEZ_PFC3/pull/5).
