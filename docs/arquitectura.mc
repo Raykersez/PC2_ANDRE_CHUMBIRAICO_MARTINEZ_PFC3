@@ -18,3 +18,5 @@ flowchart LR
 - POST /api/contact valida correo, motivo y mensaje y guarda cada envío aceptado en contact_messages. La recepción se identifica con una referencia MC. La revisión se realiza desde SQLite con acceso administrativo. [CLP-25](epicas/CLP-1/CLP-25.mc)
 
 - Las resoluciones de [CLP-6](epicas/CLP-1/CLP-6.mc) actualizan el expediente y conservan la primera decisión en SQLite dentro de la misma transacción.
+
+- [CLP-7](epicas/CLP-1/CLP-7.mc) utiliza un catálogo de puestos. La existencia de una asignación determina la ocupación y SQLite protege la unicidad por puesto y comerciante.

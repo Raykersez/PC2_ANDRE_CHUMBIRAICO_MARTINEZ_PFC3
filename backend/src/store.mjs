@@ -4,6 +4,9 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const fields = 'code, name, category, status, created_at AS createdAt';
+const accountRole = "CASE WHEN m.account_id IS NULL THEN a.role ELSE 'market_admin' END AS role";
+export const categories = ['Frutas', 'Verduras', 'Tubérculos', 'Abarrotes', 'Otros alimentos'];
+export const stallCodePattern = /^[A-Z0-9][A-Z0-9-]{0,23}$/;
 
 export function openStore(filename) {
   if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true });
@@ -18,6 +21,9 @@ export function openStore(filename) {
     );
     CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS market_admins (
+      account_id TEXT PRIMARY KEY REFERENCES accounts(id)
     );
     CREATE TABLE IF NOT EXISTS contact_messages (
       reference TEXT PRIMARY KEY, email TEXT NOT NULL, topic TEXT NOT NULL,
@@ -44,16 +50,64 @@ export function openStore(filename) {
       CHECK ((decision = 'approved' AND reason IS NULL) OR
              (decision = 'observed' AND length(coalesce(reason, '')) BETWEEN 1 AND 1000))
     );
+    CREATE TABLE IF NOT EXISTS stalls (
+      code TEXT PRIMARY KEY, location TEXT NOT NULL, category TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS stall_assignments (
+      application_code TEXT PRIMARY KEY REFERENCES applications(code),
+      stall_code TEXT NOT NULL UNIQUE REFERENCES stalls(code),
+      account_id TEXT NOT NULL UNIQUE REFERENCES accounts(id),
+      document_type TEXT NOT NULL, document_number TEXT NOT NULL,
+      administrator_id TEXT NOT NULL REFERENCES accounts(id),
+      assigned_at TEXT NOT NULL,
+      UNIQUE(document_type, document_number)
+    );
   `);
 
+  function findAssignment(code) {
+    return db.prepare(`SELECT s.code, s.location, sa.assigned_at AS assignedAt
+      FROM stall_assignments sa JOIN stalls s ON s.code = sa.stall_code
+      WHERE sa.application_code = ?`).get(code);
+  }
+
   function findApplication(code, user) {
-    const application = db.prepare(`SELECT ${fields} FROM applications WHERE code = ? AND (account_id = ? OR ? = 'staff')`)
+    const application = db.prepare(`SELECT ${fields} FROM applications WHERE code = ? AND (account_id = ? OR ? IN ('staff', 'market_admin'))`)
       .get(code, user.id, user.role);
     if (!application || application.status === 'pending') return application;
     const decision = db.prepare(`SELECT reason, decided_at AS decidedAt,
       CASE WHEN ? = 'staff' THEN evaluator_id ELSE NULL END AS evaluatorId
       FROM application_decisions WHERE application_code = ?`).get(user.role, code);
-    return { ...application, decision };
+    const assignment = user.role === 'market_admin' ? findAssignment(code) : undefined;
+    return { ...application, decision, assignment };
+  }
+
+  function assignmentBlocker(application) {
+    if (!application) return 'APPLICATION_NOT_FOUND';
+    if (application.status !== 'approved') return 'APPROVAL_REQUIRED';
+    const assigned = db.prepare(`SELECT 1 FROM stall_assignments
+      WHERE account_id = ? OR (document_type = ? AND document_number = ?)`)
+      .get(application.account_id, application.document_type, application.document_number);
+    if (assigned) return 'MERCHANT_ASSIGNED';
+  }
+
+  function readAssignmentCandidate(code) {
+    return db.prepare('SELECT status, category, account_id, document_type, document_number FROM applications WHERE code = ?').get(code);
+  }
+
+  function writeAssignment(code, stallCode, administratorId) {
+    const application = readAssignmentCandidate(code);
+    const blocker = assignmentBlocker(application);
+    if (blocker) return { error: blocker };
+    const stall = db.prepare(`SELECT s.category, sa.stall_code AS occupied
+      FROM stalls s LEFT JOIN stall_assignments sa ON sa.stall_code = s.code WHERE s.code = ?`).get(stallCode);
+    if (!stall || stall.occupied) return { error: 'STALL_UNAVAILABLE' };
+    if (stall.category !== application.category) return { error: 'STALL_INCOMPATIBLE' };
+    db.prepare(`INSERT INTO stall_assignments
+      (application_code, stall_code, account_id, document_type, document_number, administrator_id, assigned_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(code, stallCode, application.account_id, application.document_type, application.document_number,
+        administratorId, new Date().toISOString());
+    return { assignment: findAssignment(code) };
   }
 
   return {
@@ -68,17 +122,48 @@ export function openStore(filename) {
         ON CONFLICT(email) DO NOTHING RETURNING id, email, role`).get(randomUUID(), email, passwordHash);
     },
     findAccount(email) {
-      return db.prepare('SELECT id, email, role, password_hash FROM accounts WHERE email = ?').get(email);
+      return db.prepare(`SELECT a.id, a.email, ${accountRole}, a.password_hash
+        FROM accounts a LEFT JOIN market_admins m ON m.account_id = a.id WHERE a.email = ?`).get(email);
     },
     promoteStaff(email) {
       return db.prepare("UPDATE accounts SET role = 'staff' WHERE email = ?").run(email).changes > 0;
+    },
+    grantMarketAdmin(email) {
+      return Boolean(db.prepare(`INSERT INTO market_admins (account_id)
+        SELECT id FROM accounts WHERE email = ? ON CONFLICT DO NOTHING RETURNING account_id`).get(email))
+        || Boolean(db.prepare(`SELECT 1 FROM accounts a JOIN market_admins m ON m.account_id = a.id WHERE a.email = ?`).get(email));
+    },
+    addStall({ code, location, category }) {
+      return db.prepare('INSERT INTO stalls (code, location, category) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
+        .run(code, location, category).changes > 0;
+    },
+    listAvailableStalls(code) {
+      const application = readAssignmentCandidate(code);
+      const blocker = assignmentBlocker(application);
+      if (blocker) return { error: blocker };
+      const stalls = db.prepare(`SELECT s.code, s.location FROM stalls s
+        WHERE s.category = ? AND NOT EXISTS (SELECT 1 FROM stall_assignments sa WHERE sa.stall_code = s.code)
+        ORDER BY s.code`).all(application.category);
+      return { stalls };
+    },
+    assignStall(code, stallCode, administratorId) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const result = writeAssignment(code, stallCode, administratorId);
+        db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
     },
     createSession(hash, userId, now, expiry) {
       db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
       db.prepare('INSERT INTO sessions VALUES (?, ?, ?)').run(hash, userId, expiry);
     },
     getSession(hash, now) {
-      return db.prepare(`SELECT a.id, a.email, a.role FROM sessions s JOIN accounts a ON a.id = s.account_id
+      return db.prepare(`SELECT a.id, a.email, ${accountRole} FROM sessions s JOIN accounts a ON a.id = s.account_id
+        LEFT JOIN market_admins m ON m.account_id = a.id
         WHERE s.token_hash = ? AND s.expires_at > ?`).get(hash, now);
     },
     deleteSession(hash) {
