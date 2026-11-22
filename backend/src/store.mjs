@@ -62,7 +62,24 @@ export function openStore(filename) {
       assigned_at TEXT NOT NULL,
       UNIQUE(document_type, document_number)
     );
+    CREATE TABLE IF NOT EXISTS commercial_operations (
+      application_code TEXT NOT NULL REFERENCES stall_assignments(application_code),
+      submission_id TEXT NOT NULL,
+      date TEXT NOT NULL, product TEXT NOT NULL, quantity REAL NOT NULL CHECK (quantity > 0),
+      unit TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (application_code, submission_id)
+    );
   `);
+
+  function activeStall(accountId) {
+    return db.prepare(`SELECT sa.application_code, sa.stall_code AS code, s.location
+      FROM stall_assignments sa JOIN stalls s ON sa.stall_code = s.code
+      JOIN applications a ON a.code = sa.application_code
+      WHERE sa.account_id = ? AND a.account_id = ? AND a.status = 'approved'`).get(accountId, accountId);
+  }
+
+  const operationFields = 'submission_id AS id, date, product, quantity, unit';
 
   function findAssignment(code) {
     return db.prepare(`SELECT s.code, s.location, sa.assigned_at AS assignedAt
@@ -112,6 +129,27 @@ export function openStore(filename) {
   }
 
   return {
+    listOperations(accountId) {
+      const stall = activeStall(accountId);
+      if (!stall) return { stall: null, operations: [] };
+      const operations = db.prepare(`SELECT ${operationFields} FROM commercial_operations
+        WHERE application_code = ? ORDER BY date DESC, created_at DESC, submission_id DESC`).all(stall.application_code);
+      return { stall: { code: stall.code, location: stall.location }, operations };
+    },
+    createOperation(accountId, { submissionId, date, product, quantity, unit }) {
+      const stall = activeStall(accountId);
+      if (!stall) return { error: 'ACTIVE_STALL_REQUIRED' };
+      const inserted = db.prepare(`INSERT INTO commercial_operations
+        (application_code, submission_id, date, product, quantity, unit, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(application_code, submission_id) DO NOTHING
+        RETURNING ${operationFields}`).get(stall.application_code, submissionId, date, product, quantity, unit, new Date().toISOString());
+      const operation = inserted ?? db.prepare(`SELECT ${operationFields} FROM commercial_operations
+        WHERE application_code = ? AND submission_id = ?`).get(stall.application_code, submissionId);
+      if (operation.date !== date || operation.product !== product || operation.quantity !== quantity || operation.unit !== unit) {
+        return { error: 'SUBMISSION_CONFLICT' };
+      }
+      return { created: Boolean(inserted), operation };
+    },
     createContact({ email, topic, message }) {
       const reference = `MC-${randomBytes(8).toString('hex').toUpperCase()}`;
       db.prepare('INSERT INTO contact_messages (reference, email, topic, message, created_at) VALUES (?, ?, ?, ?, ?)')

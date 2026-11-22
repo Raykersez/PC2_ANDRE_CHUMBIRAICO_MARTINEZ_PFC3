@@ -9,3 +9,4 @@ Empadronamiento digital, asignación de puestos y registro de operaciones comerc
 | [CLP-6 · Resolver solicitudes de formalización](CLP-6.mc) | Implementación en rama de HU. Integración pendiente. |
 | [CLP-7 · Asignar un puesto formal](CLP-7.mc) | Implementación en rama de HU. Integración pendiente. |
 | [CLP-18 · Consultar el estado de formalización](CLP-18.mc) | Implementación en rama de HU. Integración pendiente. |
+| [CLP-19 · Registrar operaciones comerciales básicas](CLP-19.mc) | Implementación en rama de HU. Integración pendiente. |
