@@ -88,6 +88,25 @@ function operationDetails(body) {
   return { submissionId, date, product, quantity, unit };
 }
 
+function stevedoreReview(body) {
+  const { result, documentsReviewed, identityResult } = body ?? {};
+  const reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
+  const identityReference = typeof body?.identityReference === 'string' ? body.identityReference.trim() : '';
+  const needsReference = ['matched', 'mismatch'].includes(identityResult);
+  const fields = {};
+  if (!['verified', 'observed'].includes(result)) fields.result = 'Selecciona el resultado de la verificación.';
+  if (!['not-required', 'matched', 'mismatch', 'missing'].includes(identityResult)) fields.identityResult = 'Selecciona el resultado del cotejo.';
+  if (needsReference && !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(identityReference)) {
+    fields.identityReference = 'Ingresa solo la referencia del cotejo, de 3 a 64 caracteres.';
+  }
+  if (result === 'verified' && (documentsReviewed !== true || !['not-required', 'matched'].includes(identityResult))) {
+    fields.result = 'Para verificar, confirma los documentos y registra un cotejo conforme o no aplicable.';
+  }
+  if (result === 'observed' && (!reason || reason.length > 1000)) fields.reason = 'Indica el motivo en hasta 1000 caracteres.';
+  if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos de la verificación.', fields);
+  return { result, reason: result === 'observed' ? reason : null, identityResult, identityReference: needsReference ? identityReference : null };
+}
+
 async function passwordHash(password, salt = randomBytes(16).toString('hex')) {
   const hash = await deriveKey(password, salt, 64);
   return `${salt}:${hash.toString('hex')}`;
@@ -237,7 +256,10 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
   });
 
   app.get('/api/applications', requireUser, (req, res) => res.json({ applications: store.listApplications(req.user.id) }));
-  app.get('/api/stevedores', requireUser, (req, res) => res.json({ records: store.listStevedoreCases(req.user.id) }));
+  app.get('/api/stevedores', requireUser, (req, res) => res.json({
+    records: store.listStevedoreCases(req.user.id),
+    canVerify: store.hasStevedoreRole(req.user.id, 'certifier'),
+  }));
   app.post('/api/stevedores', requireUser, express.raw({ type: 'multipart/form-data', limit: '5mb' }), async (req, res) => {
     const { data, attachments } = await applicationForm(req, { requireCategory: false });
     const record = store.createStevedoreCase(req.user.id, data, attachments);
@@ -247,12 +269,22 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
     res.status(201).json({ record });
   });
   app.get('/api/stevedores/:code', requireUser, (req, res) => {
-    const record = store.findStevedoreCase(req.params.code.toUpperCase(), req.user.id);
+    const record = store.findStevedoreCase(req.params.code.toUpperCase(), req.user.id, store.hasStevedoreRole(req.user.id, 'certifier'));
     if (!record) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente.');
     res.json({ record });
   });
+  app.post('/api/stevedores/:code/review', requireUser, json, (req, res) => {
+    if (!store.hasStevedoreRole(req.user.id, 'certifier')) {
+      throw new ApiError(403, 'CERTIFIER_REQUIRED', 'Solo el certificador municipal puede registrar la verificación.');
+    }
+    const { record, recorded } = store.reviewStevedoreCase(req.params.code.toUpperCase(), req.user.id, stevedoreReview(req.body));
+    if (!record) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente.');
+    if (!recorded) throw new ApiError(409, 'ALREADY_REVIEWED', 'El expediente ya fue revisado. Recarga su estado.');
+    res.json({ record });
+  });
   app.get('/api/stevedores/:code/attachments/:kind', requireUser, (req, res) => {
-    const file = store.findStevedoreAttachment(req.params.code.toUpperCase(), req.params.kind, req.user.id);
+    const file = store.findStevedoreAttachment(req.params.code.toUpperCase(), req.params.kind, req.user.id,
+      store.hasStevedoreRole(req.user.id, 'certifier'));
     if (!file) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese documento.');
     res.attachment(`${req.params.kind === 'identity' ? 'identidad' : 'sustento-laboral'}.${fileTypes[file.mime].extension}`)
       .type(file.mime).send(Buffer.from(file.bytes));

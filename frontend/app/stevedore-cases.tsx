@@ -3,14 +3,21 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiFailure } from './api';
 import { Field } from './components';
+import { identityLabels, StevedoreReview } from './stevedore-review';
 import type { Fields } from './types';
 
-export type StevedoreRecord = { code: string; name: string; status: 'pending' | 'verified' | 'observed'; createdAt: string };
+export type StevedoreRecord = {
+  code: string; name: string; status: 'pending' | 'verified' | 'observed'; createdAt: string;
+  review?: { reason: string | null; reviewedAt: string; reviewerId?: string;
+    identityResult?: keyof typeof identityLabels; identityReference?: string | null };
+};
 export const stevedoreStatus = { pending: 'Pendiente de verificación', verified: 'Verificado', observed: 'Observado' };
 const fileFormats = '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png';
+const reviewDate = new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Lima' });
 
 export function StevedoreCases({ busy, setBusy }: { busy: boolean; setBusy: (value: boolean) => void }) {
   const [records, setRecords] = useState<StevedoreRecord[]>([]);
+  const [canVerify, setCanVerify] = useState(false);
   const [selected, setSelected] = useState<StevedoreRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [fields, setFields] = useState<Fields>({});
@@ -19,8 +26,12 @@ export function StevedoreCases({ busy, setBusy }: { busy: boolean; setBusy: (val
 
   useEffect(() => {
     const controller = new AbortController();
-    void api<{ records: StevedoreRecord[] }>('/stevedores', { signal: controller.signal })
-      .then(({ records }) => { if (!controller.signal.aborted) setRecords(records); })
+    void api<{ records: StevedoreRecord[]; canVerify: boolean }>('/stevedores', { signal: controller.signal })
+      .then(({ records, canVerify }) => {
+        if (controller.signal.aborted) return;
+        setRecords(records);
+        setCanVerify(canVerify);
+      })
       .catch((error: unknown) => { if (!controller.signal.aborted) setError(error instanceof ApiFailure ? error.message : 'No pudimos cargar tus expedientes.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
@@ -64,13 +75,23 @@ export function StevedoreCases({ busy, setBusy }: { busy: boolean; setBusy: (val
     setNotice('');
     try {
       const { record } = await api<{ record: StevedoreRecord }>('/stevedores/' + encodeURIComponent(code));
-      setSelected(record);
-      setRecords((items) => items.map((item) => item.code === code ? record : item));
+      displayRecord(record);
     } catch (error) {
       setError(error instanceof ApiFailure ? error.message : 'No pudimos abrir el expediente.');
     } finally {
       setBusy(false);
     }
+  }
+
+  function displayRecord(record: StevedoreRecord) {
+    setSelected(record);
+    setRecords((items) => items.map((item) => item.code === record.code ? record : item));
+  }
+
+  function findForReview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const code = String(new FormData(event.currentTarget).get('code') ?? '').trim().toUpperCase();
+    void view(code);
   }
 
   return (
@@ -84,6 +105,13 @@ export function StevedoreCases({ busy, setBusy }: { busy: boolean; setBusy: (val
             <div><dt>Número de expediente</dt><dd className="code">{selected.code}</dd></div>
             <div><dt>Estibador</dt><dd>{selected.name}</dd></div>
             <div><dt>Estado</dt><dd>{stevedoreStatus[selected.status]}</dd></div>
+            {selected.review && <>
+              <div><dt>Fecha de revisión (Lima)</dt><dd>{reviewDate.format(new Date(selected.review.reviewedAt))}</dd></div>
+              {selected.review.reason && <div><dt>Qué debes corregir</dt><dd>{selected.review.reason}</dd></div>}
+              {selected.review.reviewerId && <div><dt>Certificador</dt><dd className="code">{selected.review.reviewerId}</dd></div>}
+              {selected.review.identityResult && <div><dt>Cotejo de identidad</dt><dd>{identityLabels[selected.review.identityResult]}</dd></div>}
+              {selected.review.identityReference && <div><dt>Referencia del cotejo</dt><dd>{selected.review.identityReference}</dd></div>}
+            </>}
           </dl>
           <div className="receipt-actions">
             <a className="button tonal" href={'/api/stevedores/' + selected.code + '/attachments/identity'}>Descargar identificación</a>
@@ -91,10 +119,22 @@ export function StevedoreCases({ busy, setBusy }: { busy: boolean; setBusy: (val
             <button className="button outline" disabled={busy} onClick={() => view(selected.code)}>Recargar expediente</button>
             <button className="button outline" disabled={busy} onClick={() => { setSelected(null); setNotice(''); }}>Volver a mis expedientes</button>
           </div>
+          {canVerify && selected.status === 'pending' && (
+            <StevedoreReview key={selected.code} code={selected.code} busy={busy} setBusy={setBusy} onReviewed={(record) => {
+              displayRecord(record);
+              setNotice('La verificación quedó registrada.');
+            }} />
+          )}
         </>
       ) : (
         <>
           {loading && <p className="secondary" role="status">Cargando tus expedientes…</p>}
+          {canVerify && <form onSubmit={findForReview}>
+            <Field name="review-case-code" label="Número de expediente para revisión">
+              <input id="review-case-code" name="code" required maxLength={19} placeholder="ES-…" autoComplete="off" />
+            </Field>
+            <button className="button tonal" disabled={busy}>Abrir expediente</button>
+          </form>}
           {records.length > 0 && <ul className="operation-list">
             {records.map((item) => <li key={item.code}>
               <button className="record" disabled={busy} onClick={() => view(item.code)}>

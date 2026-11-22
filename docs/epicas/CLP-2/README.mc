@@ -5,3 +5,4 @@ Registro y verificación documental, credenciales QR, tarifario y asignación tr
 | HU | Seguimiento |
 | --- | --- |
 | [CLP-8 · Registrar expediente de estibador](CLP-8.mc) | Integración a main pendiente. |
+| [CLP-9 · Verificar identidad y documentación](CLP-9.mc) | Integración a main pendiente. |

@@ -78,4 +78,38 @@ test('CLP-8 · registro y consulta privada de expedientes de estibador', async (
     assert.equal(file.headers.get('cache-control'), 'no-store');
     assert.deepEqual(Buffer.from(await file.arrayBuffer()), png);
   }
+
+  await t.test('CLP-9 · verificación y auditoría restringidas al certificador', async () => {
+    const certifier = await signup('certificador@example.invalid');
+    assert.equal(store.grantStevedoreRole(certifier.email, 'certifier'), true);
+    assert.equal((await request(path + '/attachments/identity', certifier)).status, 200);
+    const review = (url, actor, data) => request(url + '/review', actor, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    });
+    const verified = { result: 'verified', documentsReviewed: true, identityResult: 'matched', identityReference: 'COTEJO-SINTETICO-01' };
+    assert.equal((await review(path, owner, verified)).status, 403);
+    assert.equal((await review(path, certifier, { ...verified, identityReference: '' })).status, 400);
+    assert.equal((await review(path, certifier, { ...verified, documentsReviewed: false })).status, 400);
+    const response = await review(path, certifier, verified);
+    assert.equal(response.status, 200);
+    const audit = (await response.json()).record;
+    assert.equal(audit.status, 'verified');
+    assert.equal(audit.review.result, 'verified');
+    assert.equal(audit.review.reviewerId, certifier.id);
+    assert.equal(audit.review.identityReference, verified.identityReference);
+    assert.ok(Number.isFinite(Date.parse(audit.review.reviewedAt)));
+    assert.equal((await review(path, certifier, verified)).status, 409);
+    assert.deepEqual((await (await request(path, certifier)).json()).record, audit);
+    const ownerView = (await (await request(path, owner)).json()).record;
+    assert.deepEqual(ownerView.review, { reason: null, reviewedAt: audit.review.reviewedAt });
+
+    const observed = (await (await submit(owner, form('90000422'))).json()).record;
+    const observedPath = '/stevedores/' + observed.code;
+    const note = { result: 'observed', identityResult: 'missing', reason: 'Falta evidencia del cotejo.' };
+    assert.equal((await review(observedPath, certifier, { ...note, reason: '' })).status, 400);
+    assert.equal((await review(observedPath, certifier, note)).status, 200);
+    const detail = (await (await request(observedPath, owner)).json()).record;
+    assert.equal(detail.status, 'observed');
+    assert.equal(detail.review.reason, note.reason);
+  });
 });
