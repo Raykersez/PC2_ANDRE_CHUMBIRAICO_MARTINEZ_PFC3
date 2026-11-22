@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiFailure } from './api';
 import { Field } from './components';
+import { StevedoreCredentials } from './stevedore-credentials';
 import { identityLabels, StevedoreReview } from './stevedore-review';
 import type { Fields } from './types';
 
@@ -18,6 +19,7 @@ const reviewDate = new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeS
 export function StevedoreCases({ busy, setBusy }: { busy: boolean; setBusy: (value: boolean) => void }) {
   const [records, setRecords] = useState<StevedoreRecord[]>([]);
   const [canVerify, setCanVerify] = useState(false);
+  const [canIssue, setCanIssue] = useState(false);
   const [selected, setSelected] = useState<StevedoreRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [fields, setFields] = useState<Fields>({});
@@ -26,11 +28,12 @@ export function StevedoreCases({ busy, setBusy }: { busy: boolean; setBusy: (val
 
   useEffect(() => {
     const controller = new AbortController();
-    void api<{ records: StevedoreRecord[]; canVerify: boolean }>('/stevedores', { signal: controller.signal })
-      .then(({ records, canVerify }) => {
+    void api<{ records: StevedoreRecord[]; canVerify: boolean; canIssue: boolean }>('/stevedores', { signal: controller.signal })
+      .then(({ records, canVerify, canIssue }) => {
         if (controller.signal.aborted) return;
         setRecords(records);
         setCanVerify(canVerify);
+        setCanIssue(canIssue);
       })
       .catch((error: unknown) => { if (!controller.signal.aborted) setError(error instanceof ApiFailure ? error.message : 'No pudimos cargar tus expedientes.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
@@ -171,6 +174,7 @@ export function StevedoreCases({ busy, setBusy }: { busy: boolean; setBusy: (val
           </form>
         </>
       )}
+      {canIssue && <StevedoreCredentials busy={busy} setBusy={setBusy} caseStatusLabels={stevedoreStatus} />}
     </>
   );
 }

@@ -36,6 +36,16 @@ export function stevedoreStore(db) {
       identity_reference TEXT,
       reviewed_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS stevedore_credentials (
+      token TEXT PRIMARY KEY,
+      case_code TEXT NOT NULL REFERENCES stevedore_cases(code),
+      issued_by TEXT NOT NULL REFERENCES accounts(id),
+      issued_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked_at INTEGER,
+      revoked_by TEXT REFERENCES accounts(id)
+    );
+    CREATE INDEX IF NOT EXISTS stevedore_credentials_case ON stevedore_credentials(case_code, issued_at DESC);
   `);
 
   function hasStevedoreRole(accountId, role) {
@@ -53,7 +63,52 @@ export function stevedoreStore(db) {
     return { ...record, review: { ...review, ...audit } };
   }
 
+  const credentialFields = 'token, issued_at AS issuedAt, expires_at AS expiresAt, revoked_at AS revokedAt';
+
+  function findCredential(token) {
+    return db.prepare(`SELECT ${credentialFields} FROM stevedore_credentials WHERE token = ?`).get(token);
+  }
+
+  function credentialCase(code) {
+    const record = db.prepare('SELECT code, status FROM stevedore_cases WHERE code = ?').get(code);
+    if (!record) return;
+    const credential = db.prepare(`SELECT ${credentialFields} FROM stevedore_credentials
+      WHERE case_code = ? ORDER BY issued_at DESC, rowid DESC LIMIT 1`).get(code);
+    return { ...record, credential: credential ?? null };
+  }
+
   return {
+    credentialCase,
+    findCredential,
+    issueStevedoreCredential(code, controllerId, now, expiresAt) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const record = credentialCase(code);
+        let result = { error: 'NOT_FOUND' };
+        if (record) {
+          if (record.status !== 'verified') {
+            result = { error: 'NOT_VERIFIED' };
+          } else if (record.credential && record.credential.revokedAt === null && record.credential.expiresAt > now) {
+            result = { error: 'CREDENTIAL_ACTIVE' };
+          } else {
+            const token = randomBytes(24).toString('hex');
+            db.prepare(`INSERT INTO stevedore_credentials (token, case_code, issued_by, issued_at, expires_at)
+              VALUES (?, ?, ?, ?, ?)`).run(token, code, controllerId, now, expiresAt);
+            result = { record: credentialCase(code) };
+          }
+        }
+        db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
+    revokeStevedoreCredential(token, controllerId, now) {
+      db.prepare('UPDATE stevedore_credentials SET revoked_at = ?, revoked_by = ? WHERE token = ? AND revoked_at IS NULL AND expires_at > ?')
+        .run(now, controllerId, token, now);
+      return findCredential(token);
+    },
     hasStevedoreRole,
     grantStevedoreRole(email, role) {
       const account = db.prepare('SELECT id FROM accounts WHERE email = ?').get(email);

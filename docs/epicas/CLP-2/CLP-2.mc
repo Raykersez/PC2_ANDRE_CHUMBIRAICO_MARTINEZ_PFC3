@@ -6,3 +6,4 @@ El Sprint 2 se desarrolla en una sola rama de la épica, con un commit por HU. E
 
 - [CLP-8 · Registrar expediente de estibador](CLP-8.mc)
 - [CLP-9 · Verificar identidad y documentación](CLP-9.mc)
+- [CLP-10 · Emitir y validar una credencial QR](CLP-10.mc)

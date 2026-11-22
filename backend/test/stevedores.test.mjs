@@ -9,7 +9,8 @@ const image = () => new File([png], 'sintetico.png', { type: 'image/png' });
 
 test('CLP-8 · registro y consulta privada de expedientes de estibador', async (t) => {
   const store = openStore(':memory:');
-  const server = createApp(store).listen(0, '127.0.0.1');
+  let now = Date.parse('2026-11-21T12:00:00Z');
+  const server = createApp(store, { now: () => now }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
@@ -111,5 +112,40 @@ test('CLP-8 · registro y consulta privada de expedientes de estibador', async (
     const detail = (await (await request(observedPath, owner)).json()).record;
     assert.equal(detail.status, 'observed');
     assert.equal(detail.review.reason, note.reason);
+  });
+
+  await t.test('CLP-10 · emite un QR opaco y valida vencimiento y revocación', async () => {
+    const controller = await signup('control@example.invalid');
+    assert.equal(store.grantStevedoreRole(controller.email, 'controller'), true);
+    const endpoint = path + '/credential';
+    const issue = (url, actor) => request(url, actor, { method: 'POST' });
+    const records = (await (await request('/stevedores', owner)).json()).records;
+    const observed = records.find((item) => item.status === 'observed');
+    assert.equal((await issue('/stevedores/' + observed.code + '/credential', controller)).status, 409);
+    assert.equal((await issue(endpoint, owner)).status, 403);
+    assert.equal((await request(path + '/attachments/identity', controller)).status, 404);
+    const attempts = await Promise.all([issue(endpoint, controller), issue(endpoint, controller)]);
+    assert.deepEqual(attempts.map((response) => response.status).sort(), [201, 409]);
+    const { credential } = (await attempts.find((response) => response.status === 201).json()).record;
+    assert.match(credential.token, /^[a-f0-9]{48}$/);
+    assert.equal(new URL(credential.validationUrl).pathname, '/estibadores/validar/' + credential.token);
+    const url = '/stevedore-credentials/' + credential.token;
+    assert.equal((await request(url + '/qr')).status, 401);
+    const qr = await request(url + '/qr', controller);
+    assert.equal(qr.headers.get('content-type'), 'image/png');
+    assert.deepEqual(Buffer.from(await qr.arrayBuffer()).subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    assert.deepEqual(await (await request(url)).json(), { status: 'active', expiresAt: credential.expiresAt });
+    assert.equal((await request('/stevedore-credentials/desconocida')).status, 404);
+
+    now = Date.parse(credential.expiresAt);
+    assert.equal((await (await request(url)).json()).status, 'expired');
+    const replacement = await issue(endpoint, controller);
+    assert.equal(replacement.status, 201);
+    const next = (await replacement.json()).record.credential;
+    assert.notEqual(next.token, credential.token);
+    const nextUrl = '/stevedore-credentials/' + next.token;
+    assert.equal((await issue(nextUrl + '/revoke', other)).status, 403);
+    assert.equal((await (await issue(nextUrl + '/revoke', controller)).json()).status, 'revoked');
+    assert.equal((await (await request(nextUrl)).json()).status, 'revoked');
   });
 });

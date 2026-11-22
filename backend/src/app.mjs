@@ -1,6 +1,7 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import express from 'express';
+import QRCode from 'qrcode';
 import { rateLimit } from 'express-rate-limit';
 import { categories, stallCodePattern } from './store.mjs';
 
@@ -8,6 +9,8 @@ const deriveKey = promisify(scrypt);
 const sessionMs = 8 * 60 * 60 * 1000;
 const cookieName = 'mercaorden_session';
 const maxFileSize = 2 * 1024 * 1024;
+const credentialLifetime = 365 * 24 * 60 * 60 * 1000;
+const credentialToken = /^[a-f0-9]{48}$/;
 const contactTopics = ['application', 'access', 'other'];
 const operationUnits = [
   { value: 'kg', label: 'Kilogramos (kg)' },
@@ -157,7 +160,7 @@ async function applicationForm(req, { requireCategory = true } = {}) {
   return { data: { name, documentType, document, category }, attachments };
 }
 
-export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
+export function createApp(store, { origin = 'http://localhost:3000', now = Date.now } = {}) {
   const app = express();
   const browserOrigin = new URL(origin).origin;
   const cookieOptions = { path: '/', httpOnly: true, sameSite: 'strict', secure: browserOrigin.startsWith('https:') };
@@ -259,6 +262,7 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
   app.get('/api/stevedores', requireUser, (req, res) => res.json({
     records: store.listStevedoreCases(req.user.id),
     canVerify: store.hasStevedoreRole(req.user.id, 'certifier'),
+    canIssue: store.hasStevedoreRole(req.user.id, 'controller'),
   }));
   app.post('/api/stevedores', requireUser, express.raw({ type: 'multipart/form-data', limit: '5mb' }), async (req, res) => {
     const { data, attachments } = await applicationForm(req, { requireCategory: false });
@@ -288,6 +292,63 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
     if (!file) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese documento.');
     res.attachment(`${req.params.kind === 'identity' ? 'identidad' : 'sustento-laboral'}.${fileTypes[file.mime].extension}`)
       .type(file.mime).send(Buffer.from(file.bytes));
+  });
+  function requireController(req, _res, next) {
+    if (!store.hasStevedoreRole(req.user.id, 'controller')) {
+      return next(new ApiError(403, 'CONTROLLER_REQUIRED', 'Solo el responsable de control puede gestionar credenciales.'));
+    }
+    next();
+  }
+
+  function credentialStatus(credential) {
+    if (credential.revokedAt !== null) return 'revoked';
+    return credential.expiresAt <= now() ? 'expired' : 'active';
+  }
+
+  function publicCredential(credential) {
+    return { status: credentialStatus(credential), expiresAt: new Date(credential.expiresAt).toISOString() };
+  }
+
+  function credentialRecord(record) {
+    const credential = record.credential;
+    return {
+      ...record,
+      credential: credential && {
+        ...publicCredential(credential),
+        token: credential.token,
+        validationUrl: new URL('/estibadores/validar/' + credential.token, browserOrigin).href,
+      },
+    };
+  }
+
+  app.get('/api/stevedores/:code/credential', requireUser, requireController, (req, res) => {
+    const record = store.credentialCase(req.params.code.toUpperCase());
+    if (!record) throw new ApiError(404, 'NOT_FOUND', 'No encontramos ese expediente.');
+    res.json({ record: credentialRecord(record) });
+  });
+  app.post('/api/stevedores/:code/credential', requireUser, requireController, (req, res) => {
+    const issuedAt = now();
+    const { record, error } = store.issueStevedoreCredential(req.params.code.toUpperCase(), req.user.id, issuedAt, issuedAt + credentialLifetime);
+    if (error === 'NOT_FOUND') throw new ApiError(404, error, 'No encontramos ese expediente.');
+    if (error === 'NOT_VERIFIED') throw new ApiError(409, error, 'Solo se emiten credenciales para expedientes verificados.');
+    if (error === 'CREDENTIAL_ACTIVE') throw new ApiError(409, error, 'Ya existe una credencial vigente. Consulta el expediente nuevamente.');
+    res.status(201).json({ record: credentialRecord(record) });
+  });
+  app.get('/api/stevedore-credentials/:token', (req, res) => {
+    const credential = credentialToken.test(req.params.token) && store.findCredential(req.params.token);
+    if (!credential) throw new ApiError(404, 'CREDENTIAL_UNKNOWN', 'La credencial no existe o el código es inválido.');
+    res.json(publicCredential(credential));
+  });
+  app.get('/api/stevedore-credentials/:token/qr', requireUser, requireController, async (req, res) => {
+    const credential = credentialToken.test(req.params.token) && store.findCredential(req.params.token);
+    if (!credential) throw new ApiError(404, 'CREDENTIAL_UNKNOWN', 'No encontramos esa credencial.');
+    const url = new URL('/estibadores/validar/' + credential.token, browserOrigin).href;
+    res.type('png').send(await QRCode.toBuffer(url, { width: 320, margin: 4 }));
+  });
+  app.post('/api/stevedore-credentials/:token/revoke', requireUser, requireController, (req, res) => {
+    const credential = credentialToken.test(req.params.token) && store.revokeStevedoreCredential(req.params.token, req.user.id, now());
+    if (!credential) throw new ApiError(404, 'CREDENTIAL_UNKNOWN', 'No encontramos esa credencial.');
+    res.json(publicCredential(credential));
   });
   app.post('/api/applications', requireUser, express.raw({ type: 'multipart/form-data', limit: '5mb' }), async (req, res) => {
     if (req.user.role !== 'merchant') throw new ApiError(403, 'MERCHANT_REQUIRED', 'Solo los comerciantes pueden iniciar una solicitud.');
