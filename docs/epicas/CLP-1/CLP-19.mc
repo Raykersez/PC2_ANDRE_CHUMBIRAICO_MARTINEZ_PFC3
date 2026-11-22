@@ -10,3 +10,5 @@
 | Evitar duplicados por reenvío. | La clave única por asignación y envío hace que un reintento con los mismos datos devuelva la operación original. Reutilizar la clave con datos distintos devuelve 409. |
 
 La asignación proviene de CLP-7. Integración a EP-01 y a main pendiente.
+
+[PR #6 hacia EP-01](https://github.com/Raykersez/PC2_ANDRE_CHUMBIRAICO_MARTINEZ_PFC3/pull/6).
