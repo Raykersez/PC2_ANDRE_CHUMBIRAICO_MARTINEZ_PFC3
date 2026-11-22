@@ -1,14 +1,23 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
-const { PR_TITLE = '', PR_BRANCH = '', BASE_SHA, HEAD_SHA, PR_FORK } = process.env;
+const { PR_TITLE = '', PR_BRANCH = '', BASE_SHA, HEAD_SHA, PR_FORK, PR_AUTHOR } = process.env;
+const dependencyBot = PR_AUTHOR === 'dependabot[bot]' && PR_BRANCH.startsWith('dependabot/');
 const title = PR_TITLE.match(/^(feat|fix|docs|test|refactor|perf|build|ci|chore|revert)(?:\((CLP-[1-9]\d*)\))?!?: \S.*$/);
 if (!title || !BASE_SHA || !HEAD_SHA) {
   console.error('Formato esperado: feat(CLP-5): registrar solicitudes o ci: actualizar comprobaciones.');
   process.exit(1);
 }
 
-const files = execFileSync('git', ['diff', '--name-only', '--no-renames', '-z', BASE_SHA + '...' + HEAD_SHA, '--'], { encoding: 'utf8' }).split('\0');
+const files = execFileSync('git', ['diff', '--name-only', '--no-renames', '-z', BASE_SHA + '...' + HEAD_SHA, '--'], { encoding: 'utf8' }).split('\0').filter(Boolean);
+if (dependencyBot) {
+  if (!files.length || files.some((path) => !/^(?:package(?:-lock)?\.json|(?:frontend|backend)\/package\.json)$/.test(path))) {
+    console.error('Los PR de Dependabot solo pueden modificar manifiestos npm y el lockfile.');
+    process.exit(1);
+  }
+  console.log('PR de Dependabot limitado a dependencias npm.');
+  process.exit(0);
+}
 const product = files.some((path) => /^(?:frontend\/|backend\/|package(?:-lock)?\.json$)/.test(path));
 const issue = title[2];
 const errors = [];

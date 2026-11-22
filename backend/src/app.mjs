@@ -2,6 +2,8 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { mountLogistics } from './logistics-api.mjs';
 import { mountServiceAssignments } from './service-assignments-api.mjs';
+import { mountSanitary } from './sanitary-api.mjs';
+import { mountWaste } from './waste-api.mjs';
 import express from 'express';
 import QRCode from 'qrcode';
 import { rateLimit } from 'express-rate-limit';
@@ -119,17 +121,37 @@ function sessionToken(req) {
   return req.headers.cookie?.match(/(?:^|;\s*)mercaorden_session=([0-9a-f]{64})(?:;|$)/)?.[1];
 }
 
-async function applicationForm(req, { requireCategory = true } = {}) {
+async function readMultipart(req) {
   if (!Buffer.isBuffer(req.body)) throw new ApiError(415, 'UNSUPPORTED_FORM', 'Envía el formulario con sus documentos adjuntos.');
-  let form;
   try {
-    form = await new Request('http://localhost', {
+    return await new Request('http://localhost', {
       method: 'POST', headers: { 'Content-Type': req.get('Content-Type') }, body: new Uint8Array(req.body),
     }).formData();
   } catch {
     throw new ApiError(400, 'INVALID_FORM', 'Vuelve a seleccionar los documentos y envía el formulario.');
   }
+}
 
+async function readAttachment(form, kind, fields) {
+  const file = form.get(kind);
+  if (!(file instanceof File) || form.getAll(kind).length !== 1 || !file.size || file.size > maxFileSize || !Object.hasOwn(fileTypes, file.type)) {
+    fields[kind] = 'Adjunta un PDF, JPG o PNG de hasta 2 MB.';
+    return;
+  }
+  const bytes = Buffer.from(await file.arrayBuffer());
+  if (!fileTypes[file.type].matches(bytes)) {
+    fields[kind] = 'El contenido del archivo no corresponde a su formato.';
+    return;
+  }
+  return { kind, mime: file.type, bytes };
+}
+
+function sendAttachment(res, file, basename) {
+  res.attachment(basename + '.' + fileTypes[file.mime].extension).type(file.mime).send(Buffer.from(file.bytes));
+}
+
+async function applicationForm(req, { requireCategory = true } = {}) {
+  const form = await readMultipart(req);
   const read = (key) => typeof form.get(key) === 'string' ? form.get(key).trim() : '';
   const name = read('name').normalize('NFC').replace(/\s+/g, ' ');
   const documentType = read('documentType').toUpperCase();
@@ -143,17 +165,8 @@ async function applicationForm(req, { requireCategory = true } = {}) {
   const attachments = [];
 
   for (const kind of ['identity', 'support']) {
-    const file = form.get(kind);
-    if (!(file instanceof File) || form.getAll(kind).length !== 1 || !file.size || file.size > maxFileSize || !Object.hasOwn(fileTypes, file.type)) {
-      fields[kind] = 'Adjunta un PDF, JPG o PNG de hasta 2 MB.';
-      continue;
-    }
-    const bytes = Buffer.from(await file.arrayBuffer());
-    if (!fileTypes[file.type].matches(bytes)) {
-      fields[kind] = 'El contenido del archivo no corresponde a su formato.';
-      continue;
-    }
-    attachments.push({ kind, mime: file.type, bytes });
+    const file = await readAttachment(form, kind, fields);
+    if (file) attachments.push(file);
   }
 
   if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos y adjuntos marcados.', fields);
@@ -412,6 +425,9 @@ export function createApp(store, { origin = 'http://localhost:3000', now = Date.
 
   mountLogistics(app, store, { ApiError, now, requireUser, json });
   mountServiceAssignments(app, store, { ApiError, now, requireUser, json });
+  mountSanitary(app, store, { ApiError, now, requireUser, json,
+    evidenceForm: express.raw({ type: 'multipart/form-data', limit: '3mb' }), readMultipart, readAttachment, sendAttachment });
+  mountWaste(app, store, { ApiError, now, requireUser, json });
   app.use((_req, _res, next) => next(new ApiError(404, 'NOT_FOUND', 'No encontramos el recurso solicitado.')));
   app.use((error, _req, res, _next) => {
     if (error instanceof ApiError) {

@@ -9,6 +9,7 @@ import { ThemeSelect } from './theme-select';
 import { StallAssignment } from './stall-assignment';
 import { StevedoreCases } from './stevedore-cases';
 import { StevedoreServices } from './stevedore-services';
+import { SanitaryWorkspace } from './sanidad/workspace';
 import type { Application, Fields, User } from './types';
 
 type AuthMode = 'signup' | 'login';
@@ -22,9 +23,11 @@ const statusLabels = { pending: 'Pendiente de revisión', approved: 'Aprobada', 
 
 export function Portal({ initialMode = 'signup', service = 'merchants' }: {
   initialMode?: AuthMode;
-  service?: 'merchants' | 'stevedores' | 'stevedore-services';
+  service?: 'merchants' | 'stevedores' | 'stevedore-services' | 'sanitary';
 }) {
-  const stevedores = service !== 'merchants';
+  const merchants = service === 'merchants';
+  const sanitary = service === 'sanitary';
+  const stevedores = !merchants && !sanitary;
   const serviceRequests = service === 'stevedore-services';
   const [user, setUser] = useState<User | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -47,7 +50,7 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
         const session = await api<{ user: User }>('/session', options);
         if (controller.signal.aborted) return;
         setUser(session.user);
-        if (stevedores) return;
+        if (!merchants) return;
         const result = await api<{ applications: Application[] }>('/applications', options);
         if (!controller.signal.aborted) setApplications(result.applications);
       } catch (error) {
@@ -60,7 +63,7 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
     }
     void load();
     return () => controller.abort();
-  }, [stevedores]);
+  }, [merchants]);
 
   function openAuth(value: AuthMode) {
     setMode(value);
@@ -101,7 +104,7 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
         body: JSON.stringify({ email: data.get('email'), password: data.get('password') }),
       });
       setUser(result.user);
-      if (stevedores) return;
+      if (!merchants) return;
       const records = await api<{ applications: Application[] }>('/applications');
       setApplications(records.applications);
     } catch (error) {
@@ -216,12 +219,13 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
         <div className="shell top-content">
           <a href="/" aria-label="Inicio de MercaOrden"><Brand /></a>
           <nav aria-label="Navegación principal">
-            <a className="nav-link" href={stevedores ? '/empadronamiento' : '#tramite'}>Empadronamiento</a>
+            <a className="nav-link" href={merchants ? '#tramite' : '/empadronamiento'}>Empadronamiento</a>
             <a className="nav-link" href={service === 'stevedores' ? '#tramite' : '/estibadores'}>Estibadores</a>
             {stevedores && <a className="nav-link" href="/estibadores/tarifario">Tarifario</a>}
             {stevedores && <a className="nav-link" href={serviceRequests ? '#tramite' : '/estibadores/servicios'}>Servicios</a>}
-            {!stevedores && <a className="nav-link" href="#expedientes">Mis solicitudes</a>}
-            {!stevedores && user?.role === 'merchant' && <a className="nav-link" href="#operaciones">Operaciones</a>}
+            {sanitary && <a className="nav-link" href="#tramite">Fiscalización sanitaria</a>}
+            {merchants && <a className="nav-link" href="#expedientes">Mis solicitudes</a>}
+            {merchants && user?.role === 'merchant' && <a className="nav-link" href="#operaciones">Operaciones</a>}
           </nav>
           <div className="header-actions">
             <ThemeSelect />
@@ -233,9 +237,10 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
 
       <main className="shell">
         <section className="intro" aria-labelledby="page-title">
-          {!stevedores && <div className="eyebrow"><span aria-hidden="true" /> Servicios para comerciantes</div>}
-          <h1 id="page-title">{serviceRequests ? 'Servicios de estibaje' : stevedores ? 'Certificación de estibadores' : <>Empadronamiento <em>digital.</em></>}</h1>
-          <p>{serviceRequests ? 'Solicita una franja de atención y consulta su asignación con la tarifa oficial.' :
+          {merchants && <div className="eyebrow"><span aria-hidden="true" /> Servicios para comerciantes</div>}
+          <h1 id="page-title">{sanitary ? 'Sanidad del mercado' : serviceRequests ? 'Servicios de estibaje' : stevedores ? 'Certificación de estibadores' : <>Empadronamiento <em>digital.</em></>}</h1>
+          <p>{sanitary ? 'Consulta las acciones sanitarias del mercado según los permisos de tu cuenta.' :
+            serviceRequests ? 'Solicita una franja de atención y consulta su asignación con la tarifa oficial.' :
             stevedores ? 'Solicita tu certificación para trabajar como estibador en el mercado mayorista.' :
             'Presenta tus datos y documentos para iniciar tu formalización en el mercado mayorista.'}</p>
         </section>
@@ -249,7 +254,8 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
             ) : !user ? (
               <>
                 <h2 id="form-title">{mode === 'signup' ? 'Inicia tu solicitud' : 'Ingresa a tu cuenta'}</h2>
-                <p className="secondary">{serviceRequests ? 'Usa tu cuenta para consultar y gestionar solicitudes de estibaje.' :
+                <p className="secondary">{sanitary ? 'Accede a tu cuenta para abrir el módulo sanitario.' :
+                  serviceRequests ? 'Usa tu cuenta para consultar y gestionar solicitudes de estibaje.' :
                   'Usa tu cuenta para enviar documentos y consultar el estado de tu expediente.'}</p>
                 <div className="segmented" aria-label="Acceso a la cuenta">
                   <button type="button" aria-pressed={mode === 'signup'} disabled={busy} onClick={() => openAuth('signup')}>Crear cuenta</button>
@@ -272,6 +278,8 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
                   <a className="button outline" href="/">Volver al inicio</a>
                 </div>
               </>
+            ) : sanitary ? (
+              <SanitaryWorkspace key={user.id} accountId={user.id} busy={busy} setBusy={setBusy} />
             ) : serviceRequests ? (
               <StevedoreServices key={user.id} canRequest={user.role === 'merchant'} busy={busy} setBusy={setBusy} />
             ) : stevedores ? (
@@ -396,7 +404,10 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
             )}
           </section>
 
-          {serviceRequests ? <aside className="requirements" aria-labelledby="service-tariffs">
+          {sanitary ? <aside className="requirements" aria-labelledby="sanitary-info">
+            <h2 id="sanitary-info">Inspección de puestos</h2>
+            <p>Revisa la higiene, la manipulación de alimentos y el almacenamiento. El borrador se conserva en esta pestaña.</p>
+          </aside> : serviceRequests ? <aside className="requirements" aria-labelledby="service-tariffs">
             <h2 id="service-tariffs">Tarifario de estibaje</h2>
             <p>Consulta el monto vigente por tipo de servicio y su unidad de cobro.</p>
             <a className="button outline" href="/estibadores/tarifario">Ver tarifas oficiales</a>
@@ -428,7 +439,7 @@ export function Portal({ initialMode = 'signup', service = 'merchants' }: {
             </section>
           </aside>}
         </div>
-        {!stevedores && user?.role === 'merchant' && <CommercialOperations key={user.id} />}
+        {merchants && user?.role === 'merchant' && <CommercialOperations key={user.id} />}
       </main>
       <footer className="shell footer"><a href="/" aria-label="Inicio de MercaOrden"><Brand /></a><span>Formalización para mercados mayoristas</span></footer>
     </>

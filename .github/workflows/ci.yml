@@ -30,13 +30,29 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BRANCH: ${{ github.head_ref }}
           PR_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           node scripts/check-pr.mjs
-          node scripts/check-docs.mjs "$BASE_SHA" "$HEAD_SHA"
+          if [[ "$PR_AUTHOR" == 'dependabot[bot]' && "$PR_BRANCH" == dependabot/* ]]; then
+            node scripts/check-docs.mjs
+          else
+            node scripts/check-docs.mjs "$BASE_SHA" "$HEAD_SHA"
+          fi
       - if: github.event_name == 'push'
         run: node scripts/check-docs.mjs
+      - name: Revisar dependencias de Dependabot sin GitHub Code Security
+        if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' && github.event.repository.private && vars.DEPENDENCY_REVIEW_ENABLED != 'true'
+        run: npm audit --package-lock-only --audit-level=high
       - run: npm ci
-      - run: npm test
+      - name: Ejecutar pruebas unitarias y de integración
+        run: npm test -w backend -- --test-reporter=spec --test-reporter=junit --test-reporter-destination=stdout --test-reporter-destination="${{ runner.temp }}/mercaorden-tests.xml"
+      - name: Publicar resultados de pruebas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-pruebas-unitarias-e-integracion
+          path: ${{ runner.temp }}/mercaorden-tests.xml
+          if-no-files-found: ignore
       - run: npm run build
 
   gitleaks:

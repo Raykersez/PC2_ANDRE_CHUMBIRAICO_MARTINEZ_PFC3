@@ -6,6 +6,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { stevedoreStore } from './stevedores.mjs';
 import { tariffStore } from './tariffs.mjs';
 import { serviceAssignmentStore } from './service-assignments.mjs';
+import { sanitaryStore } from './sanitary-store.mjs';
+import { wasteStore } from './waste-store.mjs';
 
 const fields = 'code, name, category, status, created_at AS createdAt';
 const accountRole = "CASE WHEN m.account_id IS NULL THEN a.role ELSE 'market_admin' END AS role";
@@ -137,6 +139,8 @@ export function openStore(filename) {
     ...stevedoreStore(db),
     ...tariffs,
     ...serviceAssignmentStore(db, tariffs),
+    ...sanitaryStore(db),
+    ...wasteStore(db),
     ...logisticsStore(db),
     listOperations(accountId) {
       const stall = activeStall(accountId);
