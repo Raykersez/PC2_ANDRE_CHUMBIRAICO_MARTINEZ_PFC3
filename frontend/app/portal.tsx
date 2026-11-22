@@ -7,6 +7,7 @@ import { Brand, Field } from './components';
 import { CommercialOperations } from './commercial-operations';
 import { ThemeSelect } from './theme-select';
 import { StallAssignment } from './stall-assignment';
+import { StevedoreCases } from './stevedore-cases';
 import type { Application, Fields, User } from './types';
 
 type AuthMode = 'signup' | 'login';
@@ -18,7 +19,11 @@ const localDate = new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeZo
 const decisionDate = new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Lima' });
 const statusLabels = { pending: 'Pendiente de revisión', approved: 'Aprobada', observed: 'Observada' };
 
-export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
+export function Portal({ initialMode = 'signup', service = 'merchants' }: {
+  initialMode?: AuthMode;
+  service?: 'merchants' | 'stevedores';
+}) {
+  const stevedores = service === 'stevedores';
   const [user, setUser] = useState<User | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [receipt, setReceipt] = useState<Application | null>(null);
@@ -40,6 +45,7 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
         const session = await api<{ user: User }>('/session', options);
         if (controller.signal.aborted) return;
         setUser(session.user);
+        if (stevedores) return;
         const result = await api<{ applications: Application[] }>('/applications', options);
         if (!controller.signal.aborted) setApplications(result.applications);
       } catch (error) {
@@ -52,7 +58,7 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
     }
     void load();
     return () => controller.abort();
-  }, []);
+  }, [stevedores]);
 
   function openAuth(value: AuthMode) {
     setMode(value);
@@ -93,6 +99,7 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
         body: JSON.stringify({ email: data.get('email'), password: data.get('password') }),
       });
       setUser(result.user);
+      if (stevedores) return;
       const records = await api<{ applications: Application[] }>('/applications');
       setApplications(records.applications);
     } catch (error) {
@@ -207,9 +214,11 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
         <div className="shell top-content">
           <a href="/" aria-label="Inicio de MercaOrden"><Brand /></a>
           <nav aria-label="Navegación principal">
-            <a className="nav-link" href="#tramite">Empadronamiento</a>
-            <a className="nav-link" href="#expedientes">Mis solicitudes</a>
-            {user?.role === 'merchant' && <a className="nav-link" href="#operaciones">Operaciones</a>}
+            <a className="nav-link" href={stevedores ? '/empadronamiento' : '#tramite'}>Empadronamiento</a>
+            <a className="nav-link" href={stevedores ? '#tramite' : '/estibadores'}>Estibadores</a>
+            {stevedores && <a className="nav-link" href="/estibadores/tarifario">Tarifario</a>}
+            {!stevedores && <a className="nav-link" href="#expedientes">Mis solicitudes</a>}
+            {!stevedores && user?.role === 'merchant' && <a className="nav-link" href="#operaciones">Operaciones</a>}
           </nav>
           <div className="header-actions">
             <ThemeSelect />
@@ -221,9 +230,10 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
 
       <main className="shell">
         <section className="intro" aria-labelledby="page-title">
-          <div className="eyebrow"><span aria-hidden="true" /> Servicios para comerciantes</div>
-          <h1 id="page-title">Empadronamiento <em>digital.</em></h1>
-          <p>Presenta tus datos y documentos para iniciar tu formalización en el mercado mayorista.</p>
+          {!stevedores && <div className="eyebrow"><span aria-hidden="true" /> Servicios para comerciantes</div>}
+          <h1 id="page-title">{stevedores ? 'Certificación de estibadores' : <>Empadronamiento <em>digital.</em></>}</h1>
+          <p>{stevedores ? 'Solicita tu certificación para trabajar como estibador en el mercado mayorista.' :
+            'Presenta tus datos y documentos para iniciar tu formalización en el mercado mayorista.'}</p>
         </section>
 
         <div className="workspace">
@@ -257,6 +267,8 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
                   <a className="button outline" href="/">Volver al inicio</a>
                 </div>
               </>
+            ) : stevedores ? (
+              <StevedoreCases key={user.id} busy={busy} setBusy={setBusy} />
             ) : receipt ? (
               <>
                 <p className="status-chip">{statusLabels[receipt.status]}</p>
@@ -377,7 +389,11 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
             )}
           </section>
 
-          <aside className="side">
+          {stevedores ? <aside className="requirements" aria-labelledby="stevedore-requirements">
+            <h2 id="stevedore-requirements">Documentos requeridos</h2>
+            <ul><li>DNI o carné de extranjería</li><li>Documento de sustento laboral</li></ul>
+            <p>Usa archivos PDF, JPG o PNG de hasta 2 MB cada uno.</p>
+          </aside> : <aside className="side">
             <section className="requirements" aria-labelledby="requirements-title">
               <div className="check-mark" aria-hidden="true">✓</div>
               <h2 id="requirements-title">Ten a mano</h2>
@@ -399,9 +415,9 @@ export function Portal({ initialMode = 'signup' }: { initialMode?: AuthMode }) {
                 ))}</ul>
               ) : <p className="secondary">{user ? 'Aquí aparecerán tus solicitudes registradas.' : 'Inicia sesión para consultar tus expedientes.'}</p>}
             </section>
-          </aside>
+          </aside>}
         </div>
-        {user?.role === 'merchant' && <CommercialOperations key={user.id} />}
+        {!stevedores && user?.role === 'merchant' && <CommercialOperations key={user.id} />}
       </main>
       <footer className="shell footer"><a href="/" aria-label="Inicio de MercaOrden"><Brand /></a><span>Formalización para mercados mayoristas</span></footer>
     </>

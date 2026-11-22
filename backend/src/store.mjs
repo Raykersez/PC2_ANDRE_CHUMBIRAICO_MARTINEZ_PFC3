@@ -2,6 +2,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { stevedoreStore } from './stevedores.mjs';
+import { tariffStore } from './tariffs.mjs';
 
 const fields = 'code, name, category, status, created_at AS createdAt';
 const accountRole = "CASE WHEN m.account_id IS NULL THEN a.role ELSE 'market_admin' END AS role";
@@ -129,6 +131,8 @@ export function openStore(filename) {
   }
 
   return {
+    ...stevedoreStore(db),
+    ...tariffStore(db),
     listOperations(accountId) {
       const stall = activeStall(accountId);
       if (!stall) return { stall: null, operations: [] };

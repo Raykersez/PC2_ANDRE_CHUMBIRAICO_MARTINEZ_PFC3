@@ -23,3 +23,5 @@ flowchart LR
 
 - En [CLP-18](epicas/CLP-1/CLP-18.mc), el expediente del titular incluye el motivo de observación o los datos de su puesto. La API comprueba identidad y titularidad antes de leer ese detalle.
 - [CLP-19](epicas/CLP-1/CLP-19.mc) vincula las operaciones a una asignación aprobada del comerciante y evita duplicados mediante una clave de envío única dentro de esa asignación.
+
+- El [tarifario de estibaje](epicas/CLP-2/CLP-20.mc) almacena versiones con identificadores propios en SQLite. La consulta selecciona la última versión aplicable según la fecha local de Lima.
