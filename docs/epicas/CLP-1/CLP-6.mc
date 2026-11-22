@@ -14,3 +14,5 @@ POST /api/applications/:code/decision registra el resultado, el motivo cuando co
 ## Integración
 
 Rama propia de CLP-6 con destino a EP-01. Integración pendiente.
+
+[PR #3 hacia EP-01](https://github.com/Raykersez/PC2_ANDRE_CHUMBIRAICO_MARTINEZ_PFC3/pull/3).
