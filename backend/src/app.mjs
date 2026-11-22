@@ -1,5 +1,6 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { mountLogistics } from './logistics-api.mjs';
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { categories, stallCodePattern } from './store.mjs';
@@ -138,7 +139,7 @@ async function applicationForm(req) {
   return { data: { name, documentType, document, category }, attachments };
 }
 
-export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
+export function createApp(store, { origin = 'http://localhost:3000', now = Date.now } = {}) {
   const app = express();
   const browserOrigin = new URL(origin).origin;
   const cookieOptions = { path: '/', httpOnly: true, sameSite: 'strict', secure: browserOrigin.startsWith('https:') };
@@ -293,6 +294,7 @@ export function createApp(store, { origin = 'http://localhost:3000' } = {}) {
       .type(attachment.mime).send(Buffer.from(attachment.bytes));
   });
 
+  mountLogistics(app, store, { ApiError, now });
   app.use((_req, _res, next) => next(new ApiError(404, 'NOT_FOUND', 'No encontramos el recurso solicitado.')));
   app.use((error, _req, res, _next) => {
     if (error instanceof ApiError) {

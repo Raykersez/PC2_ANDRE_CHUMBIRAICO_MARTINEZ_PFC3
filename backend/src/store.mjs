@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { logisticsStore } from './logistics-store.mjs';
 import { DatabaseSync } from 'node:sqlite';
 
 const fields = 'code, name, category, status, created_at AS createdAt';
@@ -129,6 +130,7 @@ export function openStore(filename) {
   }
 
   return {
+    ...logisticsStore(db),
     listOperations(accountId) {
       const stall = activeStall(accountId);
       if (!stall) return { stall: null, operations: [] };
