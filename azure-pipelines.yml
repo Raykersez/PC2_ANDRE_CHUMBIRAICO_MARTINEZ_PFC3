@@ -1,0 +1,59 @@
+trigger: none
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+jobs:
+  - job: Verify
+    displayName: Verificar MercaOrden
+    timeoutInMinutes: 12
+    steps:
+      - checkout: self
+        persistCredentials: false
+
+      - task: UseNode@1
+        inputs:
+          version: '22.x'
+        displayName: Preparar Node.js 22
+
+      - script: npm ci
+        displayName: Instalar dependencias
+
+      - script: node scripts/check-docs.mjs
+        displayName: Verificar documentación
+
+      - bash: |
+          npm test -w backend -- --test-reporter=spec --test-reporter=junit \
+            --test-reporter-destination=stdout --test-reporter-destination="$(Agent.TempDirectory)/mercaorden-tests.xml"
+        displayName: Ejecutar pruebas automatizadas
+
+      - task: PublishTestResults@2
+        displayName: Publicar resultados JUnit
+        condition: succeededOrFailed()
+        inputs:
+          testResultsFormat: JUnit
+          searchFolder: '$(Agent.TempDirectory)'
+          testResultsFiles: mercaorden-tests.xml
+          failTaskOnFailedTests: true
+          failTaskOnMissingResultsFile: true
+          publishRunAttachments: false
+
+      - script: npm run build
+        displayName: Compilar Next.js
+
+      - bash: |
+          set -euo pipefail
+          node backend/src/server.mjs > "$(Agent.TempDirectory)/mercaorden-api.log" 2>&1 &
+          api_pid=$!
+          node node_modules/next/dist/bin/next start frontend --hostname 127.0.0.1 > "$(Agent.TempDirectory)/mercaorden-web.log" 2>&1 &
+          web_pid=$!
+          trap 'kill "$api_pid" "$web_pid" 2>/dev/null || true' EXIT
+          if ! curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 1 --max-time 5 http://127.0.0.1:3000/ -o /dev/null ||
+             ! curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 1 --max-time 5 http://127.0.0.1:3000/api/health | jq -e '.status == "ok"'; then
+            cat "$(Agent.TempDirectory)/mercaorden-api.log" "$(Agent.TempDirectory)/mercaorden-web.log"
+            exit 1
+          fi
+        env:
+          DATABASE_FILE: ':memory:'
+        displayName: Comprobar portal y API en ejecución
