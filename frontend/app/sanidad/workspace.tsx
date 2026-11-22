@@ -167,7 +167,9 @@ export function SanitaryWorkspace({ accountId, busy, setBusy }: {
             }} />}
         </>
       )}
-      {!loading && <FindingsHistory findings={findings} />}
+      {!loading && <FindingsHistory findings={findings} canInspect={Boolean(panel)} onChange={(finding) => {
+        setFindings((items) => items.map((item) => item.id === finding.id ? finding : item));
+      }} />}
     </>
   );
 }

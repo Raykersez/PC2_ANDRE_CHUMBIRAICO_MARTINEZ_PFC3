@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { api, ApiFailure } from '../api';
 import { Field } from '../components';
 import type { Fields } from '../types';
+import { FindingFollowups } from './followups';
 
 export type Finding = {
   id: string; inspectionId: string; stallCode: string; criterion: string;
@@ -76,7 +77,10 @@ export function FindingForm({ id, stallCode, criteria, busy, setBusy, onSaved, o
   );
 }
 
-export function FindingsHistory({ findings }: { findings: Finding[] }) {
+export function FindingsHistory({ findings, canInspect, onChange }: {
+  findings: Finding[]; canInspect: boolean; onChange: (finding: Finding) => void;
+}) {
+  const [active, setActive] = useState('');
   return (
     <section aria-labelledby="findings-history">
       <h3 id="findings-history">Hallazgos sanitarios</h3>
@@ -91,6 +95,11 @@ export function FindingsHistory({ findings }: { findings: Finding[] }) {
             <p>Fecha límite: {calendar.format(new Date(finding.dueOn))} (Lima).</p>
             {finding.hasEvidence === 1 &&
               <a className="button tonal" href={'/api' + url + '/' + encodeURIComponent(finding.id) + '/evidence'}>Descargar evidencia</a>}
+            <button type="button" className="button outline" aria-expanded={active === finding.id}
+              onClick={() => setActive((previous) => previous === finding.id ? '' : finding.id)}>
+              {canInspect && finding.status === 'open' ? 'Revisar seguimiento' : 'Ver reinspecciones'}
+            </button>
+            {active === finding.id && <FindingFollowups key={finding.id} id={finding.id} canInspect={canInspect} onChange={onChange} />}
           </li>
         ))}
       </ul>

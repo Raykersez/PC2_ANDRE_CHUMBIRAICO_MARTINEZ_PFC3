@@ -20,6 +20,25 @@ export function mountSanitary(app, store, { ApiError, now, requireUser, json, ev
     if (!evidence) throw new ApiError(404, 'EVIDENCE_NOT_FOUND', 'No encontramos esa evidencia.');
     sendAttachment(res, evidence, 'evidencia-sanitaria');
   });
+  app.get('/api/sanitary/findings/:id/followups', requireUser, (req, res) => {
+    const result = store.listSanitaryFollowups(req.params.id, req.user.id, store.hasSanitaryRole(req.user.id, 'inspector'));
+    if (!result) throw new ApiError(404, 'FINDING_NOT_FOUND', 'No encontramos ese hallazgo.');
+    res.json(result);
+  });
+  app.post('/api/sanitary/findings/:id/followups', requireUser, requireInspector, json, (req, res) => {
+    const { submissionId, result } = req.body ?? {};
+    const detail = typeof req.body?.detail === 'string' ? req.body.detail.trim() : '';
+    const fields = {};
+    if (result !== 'compliant' && result !== 'noncompliant') fields.result = 'Elige el resultado de la reinspección.';
+    if (!detail || detail.length > 1000) fields.detail = 'Describe la evidencia de subsanación o el motivo por el que persiste el hallazgo.';
+    if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FIELDS', 'Revisa los campos marcados.', fields);
+    if (typeof submissionId !== 'string' || !submissionPattern.test(submissionId)) throw new ApiError(400, 'INVALID_SUBMISSION', 'Vuelve a abrir el seguimiento.');
+    const saved = store.recordSanitaryFollowup(req.params.id, req.user.id, { submissionId, result, detail }, now);
+    if (saved.error === 'FINDING_NOT_FOUND') throw new ApiError(404, saved.error, 'No encontramos ese hallazgo.');
+    if (saved.error === 'FINDING_CLOSED') throw new ApiError(409, saved.error, 'El hallazgo ya está cerrado. Actualiza el historial.');
+    if (saved.error === 'SUBMISSION_CONFLICT') throw new ApiError(409, saved.error, 'El envío ya se registró con datos distintos. Actualiza el historial.');
+    res.status(saved.created ? 201 : 200).json(saved);
+  });
   app.post('/api/sanitary/findings', requireUser, requireInspector, evidenceForm, async (req, res) => {
     const form = await readMultipart(req);
     const read = (key) => typeof form.get(key) === 'string' ? form.get(key).trim() : '';

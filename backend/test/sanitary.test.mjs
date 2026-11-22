@@ -115,4 +115,30 @@ test('EP-04 · fiscalización sanitaria y residuos', async (t) => {
       assert.deepEqual(Buffer.from(await file.arrayBuffer()), png);
     }
   });
+
+  await t.test('CLP-23 · conserva seguimientos y cierra una sola vez cuando se corrige', async () => {
+    const url = '/sanitary/findings/' + finding.id + '/followups';
+    const unresolved = { submissionId: randomUUID(), result: 'noncompliant', detail: 'La condición sigue presente en la prueba.' };
+    assert.equal((await request(url, owner, unresolved)).status, 403);
+    assert.equal((await request(url, other)).status, 404);
+    const stillOpen = await request(url, inspector, unresolved);
+    assert.equal(stillOpen.status, 201);
+    assert.equal((await stillOpen.json()).finding.status, 'open');
+    assert.equal((await request(url, inspector, unresolved)).status, 200);
+    const corrected = { submissionId: randomUUID(), result: 'compliant', detail: 'La revisión sintética confirmó la medida correctiva.' };
+    assert.equal((await request(url, inspector, { ...corrected, detail: '' })).status, 400);
+    now += 86_400_000;
+    const attempts = await Promise.all([request(url, inspector, corrected), request(url, inspector, { ...corrected, submissionId: randomUUID() })]);
+    assert.deepEqual(attempts.map(({ status }) => status).sort(), [201, 409]);
+    const audit = (await (await request(url, inspector)).json()).followups;
+    assert.equal(audit.length, 2);
+    assert.equal(audit[0].detail, unresolved.detail);
+    assert.equal(audit[1].result, 'compliant');
+    assert.equal(audit[1].reviewedAt, now);
+    assert.equal(audit[1].inspectorId, inspector.id);
+    const holder = await (await request(url, owner)).json();
+    assert.equal(holder.finding.status, 'closed');
+    assert.equal(holder.finding.inspectionId, inspection.id);
+    assert.equal(holder.followups[1].inspectorId, undefined);
+  });
 });

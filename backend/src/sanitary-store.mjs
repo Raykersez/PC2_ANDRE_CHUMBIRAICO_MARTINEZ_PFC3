@@ -36,6 +36,15 @@ export function sanitaryStore(db) {
       evidence_bytes BLOB
     );
     CREATE INDEX IF NOT EXISTS sanitary_findings_inspection ON sanitary_findings(inspection_id);
+    CREATE TABLE IF NOT EXISTS sanitary_followups (
+      id TEXT PRIMARY KEY,
+      finding_id TEXT NOT NULL REFERENCES sanitary_findings(id),
+      inspector_id TEXT NOT NULL REFERENCES accounts(id),
+      result TEXT NOT NULL CHECK (result IN ('compliant', 'noncompliant')),
+      detail TEXT NOT NULL,
+      reviewed_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS sanitary_followups_finding ON sanitary_followups(finding_id, reviewed_at);
   `);
 
   const columns = `i.id, i.stall_code AS stallCode, i.inspector_id AS inspectorId, i.checklist_version AS version,
@@ -47,8 +56,46 @@ export function sanitaryStore(db) {
     FROM sanitary_findings f JOIN sanitary_inspections i ON f.inspection_id = i.id`;
   const mayReadFinding = `(? = 1 OR EXISTS (SELECT 1 FROM stall_assignments s
     WHERE s.stall_code = i.stall_code AND s.account_id = ?))`;
+  const followupColumns = `id, result, detail, inspector_id AS inspectorId, reviewed_at AS reviewedAt`;
+  const findFinding = (id) => db.prepare(findingSelect + ' WHERE f.id = ?').get(id);
 
   return {
+    listSanitaryFollowups(id, accountId, inspector) {
+      const finding = db.prepare(findingSelect + ' WHERE f.id = ? AND ' + mayReadFinding).get(id, Number(inspector), accountId);
+      if (!finding) return;
+      const rows = db.prepare(`SELECT ${followupColumns} FROM sanitary_followups WHERE finding_id = ?
+        ORDER BY reviewed_at, rowid`).all(id);
+      const followups = inspector ? rows : rows.map(({ inspectorId: _inspector, ...row }) => row);
+      return { finding, followups };
+    },
+    recordSanitaryFollowup(findingId, accountId, { submissionId, result, detail }, clock) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const finding = findFinding(findingId);
+        const previous = db.prepare(`SELECT ${followupColumns}, finding_id AS findingId
+          FROM sanitary_followups WHERE id = ?`).get(submissionId);
+        let response;
+        if (!finding) response = { error: 'FINDING_NOT_FOUND' };
+        else if (previous && (previous.findingId !== findingId || previous.inspectorId !== accountId
+            || previous.result !== result || previous.detail !== detail)) response = { error: 'SUBMISSION_CONFLICT' };
+        else if (previous) response = { finding, followup: previous, created: false };
+        else if (finding.status === 'closed') response = { error: 'FINDING_CLOSED' };
+        else {
+          db.prepare('INSERT INTO sanitary_followups VALUES (?, ?, ?, ?, ?, ?)')
+            .run(submissionId, findingId, accountId, result, detail, clock());
+          if (result === 'compliant') db.prepare("UPDATE sanitary_findings SET status = 'closed' WHERE id = ?").run(findingId);
+          response = {
+            finding: findFinding(findingId), created: true,
+            followup: db.prepare(`SELECT ${followupColumns}, finding_id AS findingId FROM sanitary_followups WHERE id = ?`).get(submissionId),
+          };
+        }
+        db.exec('COMMIT');
+        return response;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
     listSanitaryFindings(accountId, inspector) {
       return db.prepare(findingSelect + ' WHERE ' + mayReadFinding + ' ORDER BY f.created_at DESC, f.id')
         .all(Number(inspector), accountId);
@@ -68,7 +115,7 @@ export function sanitaryStore(db) {
         (id, inspection_id, inspector_id, criterion, description, corrective_action, due_on, created_at, evidence_mime, evidence_bytes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(id, inspectionId, inspectorId, criterion, description, correctiveAction, dueOn, clock(), evidence?.mime ?? null, evidence?.bytes ?? null);
-      return { finding: db.prepare(findingSelect + ' WHERE f.id = ?').get(id) };
+      return { finding: findFinding(id) };
     },
     hasSanitaryRole(accountId, role) {
       return Boolean(db.prepare('SELECT 1 FROM sanitary_roles WHERE account_id = ? AND role = ?').get(accountId, role));
