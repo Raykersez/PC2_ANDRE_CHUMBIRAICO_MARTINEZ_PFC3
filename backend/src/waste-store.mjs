@@ -18,12 +18,23 @@ export function wasteStore(db) {
       PRIMARY KEY (recorder_id, id)
     );
     CREATE INDEX IF NOT EXISTS waste_collections_recorder ON waste_collections(recorder_id, recorded_at);
+    CREATE INDEX IF NOT EXISTS waste_collections_active_date ON waste_collections(recorded_at, zone) WHERE status = 'active';
   `);
 
   const columns = `id, point_code AS pointCode, zone, weight_grams AS grams, recorder_id AS recorderId, recorded_at AS recordedAt`;
   const kilograms = ({ grams, ...row }) => ({ ...row, weightKg: grams / 1000 });
 
   return {
+    wasteZones() {
+      return db.prepare(`SELECT zone FROM waste_points UNION SELECT zone FROM waste_collections
+        WHERE status = 'active' ORDER BY zone`).all().map(({ zone }) => zone);
+    },
+    summarizeWaste(zone, start, end) {
+      const row = db.prepare(`SELECT count(*) AS count, total(weight_grams) AS grams FROM waste_collections
+        WHERE status = 'active' AND recorded_at >= ? AND recorded_at < ? AND (? = '' OR zone = ?)`)
+        .get(start, end, zone, zone);
+      return { count: row.count, weightKg: row.grams / 1000 };
+    },
     setWastePoint(code, zone, active) {
       db.prepare(`INSERT INTO waste_points VALUES (?, ?, ?) ON CONFLICT(code) DO UPDATE
         SET zone = excluded.zone, active = excluded.active`).run(code, zone, Number(active));

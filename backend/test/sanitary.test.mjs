@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { test } from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { createApp } from '../src/app.mjs';
 import { openStore } from '../src/store.mjs';
 import { inspectionAnswers } from '../src/sanitary-checklist.mjs';
+import { wasteStore } from '../src/waste-store.mjs';
 
 const complete = { hygiene: 'compliant', handling: 'compliant', storage: 'compliant' };
 
@@ -12,6 +14,21 @@ test('CLP-15 · la lista es obligatoria y un incumplimiento determina el resulta
   assert.deepEqual(inspectionAnswers(complete), { answers: complete, result: 'compliant' });
   assert.equal(inspectionAnswers({ ...complete, storage: 'noncompliant' }).result, 'noncompliant');
   assert.deepEqual(Object.keys(inspectionAnswers({ hygiene: 'compliant' }).fields), ['handling', 'storage']);
+});
+
+test('CLP-24 · el resumen excluye registros anulados', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec("CREATE TABLE accounts (id TEXT PRIMARY KEY); INSERT INTO accounts VALUES ('sintetico')");
+    const store = wasteStore(db);
+    store.setWastePoint('AC-03', 'Zona de prueba', true);
+    store.recordWasteCollection('sintetico', { submissionId: 'activo', pointCode: 'AC-03', grams: 1500 }, 100);
+    store.recordWasteCollection('sintetico', { submissionId: 'anulado', pointCode: 'AC-03', grams: 999 }, 100);
+    db.prepare("UPDATE waste_collections SET status = 'voided' WHERE id = ?").run('anulado');
+    assert.deepEqual(store.summarizeWaste('Zona de prueba', 100, 101), { count: 1, weightKg: 1.5 });
+  } finally {
+    db.close();
+  }
 });
 
 test('EP-04 · fiscalización sanitaria y residuos', async (t) => {
@@ -169,5 +186,36 @@ test('EP-04 · fiscalización sanitaria y residuos', async (t) => {
     assert.deepEqual(history.points.map(({ code }) => code), ['AC-01']);
     const smallest = await request(path, recorder, { ...record, submissionId: randomUUID(), weightKg: 0.001 });
     assert.equal(smallest.status, 201);
+  });
+
+  await t.test('CLP-24 · agrupa por zona y días inclusivos de Lima', async () => {
+    const recorder = await account('residuos-resumen', 'waste-recorder');
+    const supervisor = await account('supervisor', 'waste-supervisor');
+    store.setWastePoint('AC-02', 'Descarga Sur', true);
+    const save = (pointCode, weightKg) => request('/waste/collections', recorder, { submissionId: randomUUID(), pointCode, weightKg });
+    const summary = (actor, zone, from = '2026-12-01', to = from) =>
+      request('/waste/summary?' + new URLSearchParams({ zone, from, to }), actor);
+    assert.equal((await summary(recorder, '')).status, 403);
+    assert.equal((await summary(null, '')).status, 401);
+    assert.equal((await summary(supervisor, '', '2026-12-02', '2026-12-01')).status, 400);
+    now = Date.parse('2026-12-01T04:59:59.999Z');
+    assert.equal((await save('AC-01', 8)).status, 201);
+    now += 1;
+    assert.equal((await save('AC-01', 1.125)).status, 201);
+    assert.equal((await save('AC-02', 5)).status, 201);
+    now = Date.parse('2026-12-02T04:59:59.999Z');
+    assert.equal((await save('AC-01', 2.375)).status, 201);
+    now += 1;
+    assert.equal((await save('AC-01', 9)).status, 201);
+    store.setWastePoint('AC-01', 'Descarga Norte', false);
+    const north = await (await summary(supervisor, 'Descarga Norte')).json();
+    assert.deepEqual(north, { from: '2026-12-01', to: '2026-12-01', zone: 'Descarga Norte', count: 2, weightKg: 3.5 });
+    const total = await (await summary(supervisor, '')).json();
+    assert.equal(total.count, 3);
+    assert.equal(total.weightKg, 8.5);
+    const empty = await (await summary(supervisor, 'Descarga Sur', '2026-12-02')).json();
+    assert.equal(empty.count, 0);
+    assert.equal(empty.weightKg, 0);
+    assert.deepEqual((await (await request('/waste/zones', supervisor)).json()).zones, ['Descarga Norte', 'Descarga Sur']);
   });
 });

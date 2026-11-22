@@ -8,3 +8,4 @@ El PR de integración a main usa la clave CLP-4. Cada HU se publica en un commit
 - [CLP-16 · Registrar hallazgo sanitario y plazo de corrección](CLP-16.mc)
 - [CLP-23 · Verificar y cerrar un hallazgo sanitario](CLP-23.mc)
 - [CLP-17 · Registrar acopio de mermas orgánicas](CLP-17.mc)
+- [CLP-24 · Consultar el resumen de acopio por zona](CLP-24.mc)

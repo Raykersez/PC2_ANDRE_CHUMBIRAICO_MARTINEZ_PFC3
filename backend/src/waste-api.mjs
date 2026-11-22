@@ -1,5 +1,6 @@
 import { submissionPattern } from './sanitary-checklist.mjs';
 import { wastePointPattern } from './waste-store.mjs';
+import { isCalendarDate } from './calendar.mjs';
 
 export function mountWaste(app, store, { ApiError, now, requireUser, json }) {
   function requireRecorder(req, _res, next) {
@@ -8,6 +9,27 @@ export function mountWaste(app, store, { ApiError, now, requireUser, json }) {
     }
     next();
   }
+  function requireSupervisor(req, _res, next) {
+    if (!store.hasSanitaryRole(req.user.id, 'waste-supervisor')) {
+      return next(new ApiError(403, 'WASTE_SUPERVISOR_REQUIRED', 'Solo la supervisión de limpieza puede consultar el resumen.'));
+    }
+    next();
+  }
+  app.get('/api/waste/zones', requireUser, requireSupervisor, (_req, res) => {
+    res.json({ zones: store.wasteZones() });
+  });
+  app.get('/api/waste/summary', requireUser, requireSupervisor, (req, res) => {
+    const { from, to, zone = '' } = req.query;
+    const fields = {};
+    if (!isCalendarDate(from)) fields.from = 'Ingresa una fecha inicial válida.';
+    if (!isCalendarDate(to)) fields.to = 'Ingresa una fecha final válida.';
+    if (!fields.from && !fields.to && to < from) fields.to = 'La fecha final debe ser igual o posterior a la inicial.';
+    if (typeof zone !== 'string' || zone.length > 120) fields.zone = 'Selecciona una zona válida.';
+    if (Object.keys(fields).length) throw new ApiError(400, 'INVALID_FILTERS', 'Revisa los filtros del resumen.', fields);
+    const start = Date.parse(from + 'T00:00:00-05:00');
+    const end = Date.parse(to + 'T00:00:00-05:00') + 86_400_000;
+    res.json({ from, to, zone, ...store.summarizeWaste(zone, start, end) });
+  });
 
   app.get('/api/waste/collections', requireUser, requireRecorder, (req, res) => {
     res.json(store.listWasteCollections(req.user.id));

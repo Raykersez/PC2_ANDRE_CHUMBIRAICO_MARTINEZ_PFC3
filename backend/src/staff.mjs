@@ -13,6 +13,7 @@ const controllerEmail = action === '--control-estibaje' && args.length === 1 ? v
 const coordinatorEmail = action === '--coordinar-estibaje' && args.length === 1 ? value.trim().toLowerCase() : '';
 const inspectorEmail = action === '--inspector-sanitario' && args.length === 1 ? value.trim().toLowerCase() : '';
 const wasteEmail = action === '--encargado-residuos' && args.length === 1 ? value.trim().toLowerCase() : '';
+const wasteSupervisor = action === '--supervisor-limpieza' && args.length === 1 ? value.trim().toLowerCase() : '';
 const wastePoint = value?.trim().toUpperCase();
 const wasteZone = rawLocation?.trim();
 const validWastePoint = action === '--punto-acopio' && args.length === 3 && wastePointPattern.test(wastePoint ?? '')
@@ -20,12 +21,12 @@ const validWastePoint = action === '--punto-acopio' && args.length === 3 && wast
 const evaluatorEmail = action && !action.startsWith('--') && !args.length ? action.trim().toLowerCase() : '';
 const tariff = parseTariffCommand(action, args);
 if (!validStall && !adminEmail && !certifierEmail && !controllerEmail && !coordinatorEmail && !inspectorEmail && !evaluatorEmail
-  && !tariff && !wasteEmail && !validWastePoint) {
+  && !tariff && !wasteEmail && !wasteSupervisor && !validWastePoint) {
   console.error('Uso: npm run staff -- correo | --administrador correo | --certificador correo | --control-estibaje correo | --puesto código "ubicación" "rubro"');
   console.error('Rubros: ' + categories.join(', '));
   console.error('Coordinación: --coordinar-estibaje correo');
   console.error('Fiscalización: --inspector-sanitario correo');
-  console.error('Residuos: --encargado-residuos correo | --punto-acopio código "zona" activo|inactivo');
+  console.error('Residuos: --encargado-residuos correo | --supervisor-limpieza correo | --punto-acopio código "zona" activo|inactivo');
   console.error('Tarifario: --servicio código "nombre" | --tarifa código monto-en-céntimos "unidad" desde [hasta]');
   process.exit(1);
 }
@@ -50,6 +51,7 @@ try {
   else if (coordinatorEmail && store.grantStevedoreRole(coordinatorEmail, 'coordinator')) console.log('Cuenta habilitada para coordinar el estibaje.');
   else if (inspectorEmail && store.grantSanitaryRole(inspectorEmail, 'inspector')) console.log('Cuenta habilitada para inspección sanitaria.');
   else if (wasteEmail && store.grantSanitaryRole(wasteEmail, 'waste-recorder')) console.log('Cuenta habilitada para registrar acopio.');
+  else if (wasteSupervisor && store.grantSanitaryRole(wasteSupervisor, 'waste-supervisor')) console.log('Cuenta habilitada para supervisar acopio.');
   else if (evaluatorEmail && store.promoteStaff(evaluatorEmail)) console.log('Cuenta autorizada para consultar expedientes.');
   else {
     console.error(validStall ? 'Ya existe un puesto con ese código.' : 'La cuenta aún no está registrada.');

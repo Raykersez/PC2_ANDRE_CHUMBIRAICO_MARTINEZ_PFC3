@@ -13,6 +13,7 @@ export function mountSanitary(app, store, { ApiError, now, requireUser, json, ev
     res.json({
       canInspect: store.hasSanitaryRole(req.user.id, 'inspector'),
       canRecordWaste: store.hasSanitaryRole(req.user.id, 'waste-recorder'),
+      canSummarizeWaste: store.hasSanitaryRole(req.user.id, 'waste-supervisor'),
     });
   });
   app.get('/api/sanitary/findings', requireUser, (req, res) => {

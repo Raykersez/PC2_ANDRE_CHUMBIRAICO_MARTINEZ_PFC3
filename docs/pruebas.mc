@@ -30,3 +30,5 @@ La [prueba de CLP-19](../backend/test/operations.test.mjs) valida cantidades y u
 La [suite de EP-03](../backend/test/logistics.test.mjs) cubre filtros y límites de horario, concurrencia por cupo, permisos, cancelaciones, idempotencia del ingreso y cálculo de permanencia. Usa placas sintéticas, SQLite en memoria y reloj controlado.
 
 [CLP-11](evidencias/CLP-11.mc) verifica acceso por cuenta y permiso, asignaciones simultáneas, cambio de tarifa y credenciales revocadas o vencidas.
+
+La [suite de EP-04](../backend/test/sanitary.test.mjs) cubre inspecciones versionadas, borradores reenviados, permisos de evidencias, cierres, peso y agregación por zona y fecha de Lima.
