@@ -10,7 +10,10 @@ export function mountSanitary(app, store, { ApiError, now, requireUser, json, ev
   }
 
   app.get('/api/sanitary', requireUser, (req, res) => {
-    res.json({ canInspect: store.hasSanitaryRole(req.user.id, 'inspector') });
+    res.json({
+      canInspect: store.hasSanitaryRole(req.user.id, 'inspector'),
+      canRecordWaste: store.hasSanitaryRole(req.user.id, 'waste-recorder'),
+    });
   });
   app.get('/api/sanitary/findings', requireUser, (req, res) => {
     res.json({ findings: store.listSanitaryFindings(req.user.id, store.hasSanitaryRole(req.user.id, 'inspector')) });

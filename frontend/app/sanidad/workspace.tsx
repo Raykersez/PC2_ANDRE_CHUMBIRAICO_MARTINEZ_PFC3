@@ -5,6 +5,7 @@ import { api, ApiFailure } from '../api';
 import { Field } from '../components';
 import type { Fields } from '../types';
 import { FindingForm, FindingsHistory, type Finding } from './findings';
+import { WasteCollections } from './waste-collections';
 
 export type Inspection = {
   id: string; stallCode: string; version: number; inspectorId: string;
@@ -25,6 +26,7 @@ export function SanitaryWorkspace({ accountId, busy, setBusy }: {
 }) {
   const storageKey = 'mercaorden-inspection-' + accountId;
   const [panel, setPanel] = useState<PanelData | null>(null);
+  const [canRecordWaste, setCanRecordWaste] = useState(false);
   const [findingFor, setFindingFor] = useState<Inspection | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -38,11 +40,12 @@ export function SanitaryWorkspace({ accountId, busy, setBusy }: {
     const controller = new AbortController();
     async function load() {
       const options = { signal: controller.signal };
-      const [{ canInspect }, { findings }] = await Promise.all([
-        api<{ canInspect: boolean }>('/sanitary', options),
+      const [{ canInspect, canRecordWaste }, { findings }] = await Promise.all([
+        api<{ canInspect: boolean; canRecordWaste: boolean }>('/sanitary', options),
         api<{ findings: Finding[] }>('/sanitary/findings', options),
       ]);
       if (controller.signal.aborted) return;
+      setCanRecordWaste(canRecordWaste);
       setFindings(findings);
       if (canInspect) {
         const data = await api<PanelData>(inspectionsPath, { signal: controller.signal });
@@ -170,6 +173,7 @@ export function SanitaryWorkspace({ accountId, busy, setBusy }: {
       {!loading && <FindingsHistory findings={findings} canInspect={Boolean(panel)} onChange={(finding) => {
         setFindings((items) => items.map((item) => item.id === finding.id ? finding : item));
       }} />}
+      {canRecordWaste && <WasteCollections busy={busy} setBusy={setBusy} />}
     </>
   );
 }

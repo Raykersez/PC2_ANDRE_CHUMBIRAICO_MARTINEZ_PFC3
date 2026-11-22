@@ -141,4 +141,33 @@ test('EP-04 · fiscalización sanitaria y residuos', async (t) => {
     assert.equal(holder.finding.inspectionId, inspection.id);
     assert.equal(holder.followups[1].inspectorId, undefined);
   });
+
+  await t.test('CLP-17 · valida peso y punto y evita reenvíos duplicados', async () => {
+    const recorder = await account('residuos', 'waste-recorder');
+    store.setWastePoint('AC-01', 'Descarga Norte', true);
+    store.setWastePoint('AC-02', 'Descarga Sur', false);
+    const path = '/waste/collections';
+    const record = { submissionId: randomUUID(), pointCode: 'AC-01', weightKg: 1.234 };
+    assert.equal((await request(path, inspector, record)).status, 403);
+    assert.equal((await request(path, recorder, { ...record, pointCode: 'AC-02' })).status, 400);
+    for (const invalid of [0, -1, 0.0001, Number.MAX_SAFE_INTEGER, '1.5', null]) {
+      const response = await request(path, recorder, { ...record, weightKg: invalid });
+      assert.equal(response.status, 400);
+      assert.ok((await response.json()).error.fields.weightKg);
+    }
+    const attempts = await Promise.all([request(path, recorder, record), request(path, recorder, record)]);
+    assert.deepEqual(attempts.map(({ status }) => status).sort(), [200, 201]);
+    const result = (await attempts[0].json()).collection;
+    assert.deepEqual((await attempts[1].json()).collection, result);
+    assert.equal(result.weightKg, 1.234);
+    assert.equal(result.zone, 'Descarga Norte');
+    assert.equal(result.recorderId, recorder.id);
+    assert.equal(result.recordedAt, now);
+    assert.equal((await request(path, recorder, { ...record, weightKg: 2 })).status, 409);
+    const history = await (await request(path, recorder)).json();
+    assert.deepEqual(history.collections, [result]);
+    assert.deepEqual(history.points.map(({ code }) => code), ['AC-01']);
+    const smallest = await request(path, recorder, { ...record, submissionId: randomUUID(), weightKg: 0.001 });
+    assert.equal(smallest.status, 201);
+  });
 });
