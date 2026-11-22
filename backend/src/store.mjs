@@ -35,7 +35,26 @@ export function openStore(filename) {
       application_code TEXT NOT NULL REFERENCES applications(code), kind TEXT NOT NULL,
       mime TEXT NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (application_code, kind)
     );
+    CREATE TABLE IF NOT EXISTS application_decisions (
+      application_code TEXT PRIMARY KEY REFERENCES applications(code),
+      evaluator_id TEXT NOT NULL REFERENCES accounts(id),
+      decision TEXT NOT NULL CHECK (decision IN ('approved', 'observed')),
+      reason TEXT,
+      decided_at TEXT NOT NULL,
+      CHECK ((decision = 'approved' AND reason IS NULL) OR
+             (decision = 'observed' AND length(coalesce(reason, '')) BETWEEN 1 AND 1000))
+    );
   `);
+
+  function findApplication(code, user) {
+    const application = db.prepare(`SELECT ${fields} FROM applications WHERE code = ? AND (account_id = ? OR ? = 'staff')`)
+      .get(code, user.id, user.role);
+    if (!application || application.status === 'pending') return application;
+    const decision = db.prepare(`SELECT reason, decided_at AS decidedAt,
+      CASE WHEN ? = 'staff' THEN evaluator_id ELSE NULL END AS evaluatorId
+      FROM application_decisions WHERE application_code = ?`).get(user.role, code);
+    return { ...application, decision };
+  }
 
   return {
     createContact({ email, topic, message }) {
@@ -68,9 +87,26 @@ export function openStore(filename) {
     listApplications(userId) {
       return db.prepare(`SELECT ${fields} FROM applications WHERE account_id = ? ORDER BY created_at DESC`).all(userId);
     },
-    findApplication(code, user) {
-      return db.prepare(`SELECT ${fields} FROM applications WHERE code = ? AND (account_id = ? OR ? = 'staff')`)
-        .get(code, user.id, user.role);
+    findApplication,
+    resolveApplication(code, evaluator, status, reason) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const result = db.prepare("UPDATE applications SET status = ? WHERE code = ? AND status = 'pending'")
+          .run(status, code);
+        if (!result.changes) {
+          const application = findApplication(code, evaluator);
+          db.exec('COMMIT');
+          return { application, resolved: false };
+        }
+        db.prepare(`INSERT INTO application_decisions (application_code, evaluator_id, decision, reason, decided_at)
+          VALUES (?, ?, ?, ?, ?)`).run(code, evaluator.id, status, reason, new Date().toISOString());
+        const resolved = findApplication(code, evaluator);
+        db.exec('COMMIT');
+        return { application: resolved, resolved: true };
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
     },
     findAttachment(code, kind, user) {
       return db.prepare(`SELECT f.mime, f.bytes FROM attachments f JOIN applications a ON a.code = f.application_code
