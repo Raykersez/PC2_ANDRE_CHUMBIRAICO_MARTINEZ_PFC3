@@ -107,6 +107,10 @@ form .button { justify-self: start; margin-top: 3px; }
 .tariff-list h3 { margin: 0 0 8px; }
 .tariff-list strong { font-size: 1.4rem; }
 .tariff-list .secondary { color: inherit; }
+.service-requests { display: grid; margin-top: 24px; }
+.service-requests h3 { margin: 0; }
+.service-requests .button { justify-self: start; }
+.service-requests .operation-list li { gap: 8px; }
 .hint, .field-error { font-size: .85rem; }
 .hint { color: var(--md-on-surface-variant); }
 .field-error { color: var(--md-error); }

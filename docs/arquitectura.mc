@@ -26,3 +26,5 @@ flowchart LR
 
 - El [tarifario de estibaje](epicas/CLP-2/CLP-20.mc) almacena versiones con identificadores propios en SQLite. La consulta selecciona la última versión aplicable según la fecha local de Lima.
 - [EP-03](epicas/CLP-3/CLP-3.mc) usa ventanas en hora de Lima y turnos con códigos opacos. SQLite verifica el cupo y la placa en transacciones y registra ingreso, cancelación y salida como eventos únicos. Las cancelaciones liberan capacidad sin borrar el historial.
+
+- [CLP-11](epicas/CLP-2/CLP-11.mc) registra solicitudes de servicios y sus asignaciones. Verifica credenciales, franjas y tarifa dentro de una transacción, y conserva el monto y la versión al confirmar.
