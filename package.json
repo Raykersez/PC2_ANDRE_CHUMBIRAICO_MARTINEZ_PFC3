@@ -1,0 +1,15 @@
+{
+  "name": "mercaorden",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["frontend", "backend"],
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "dev:web": "npm run dev -w frontend",
+    "dev:api": "npm run dev -w backend",
+    "build": "npm run build -w frontend",
+    "test": "npm run test -w backend",
+    "staff": "npm run staff -w backend --"
+  }
+}
