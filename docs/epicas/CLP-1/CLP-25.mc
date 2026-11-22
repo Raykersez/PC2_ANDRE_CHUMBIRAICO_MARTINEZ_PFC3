@@ -26,3 +26,5 @@ Material Design 3 guía los [roles de color](https://m3.material.io/styles/color
 ## Estado
 
 Implementación y comprobaciones automáticas locales. CI e integración a main pendientes de confirmación.
+
+[PR #2 hacia main](https://github.com/Raykersez/PC2_ANDRE_CHUMBIRAICO_MARTINEZ_PFC3/pull/2).
