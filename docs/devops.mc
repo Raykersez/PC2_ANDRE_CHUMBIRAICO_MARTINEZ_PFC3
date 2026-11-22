@@ -25,3 +25,5 @@ El workflow vuelve a ejecutar los controles tras cada push a `main` y despliega 
 Prepara dos App Services Linux con Node.js 22 y `WEBSITE_RUN_FROM_PACKAGE=1`. Usa `node backend/src/server.mjs` como comando de inicio del backend, con `HOST=0.0.0.0`, `APP_ORIGIN` igual al origen HTTPS del frontend y `DATABASE_FILE=/home/data/mercaorden.sqlite` para una demostración de una instancia. Para el frontend, usa `node node_modules/next/dist/bin/next start frontend --hostname 0.0.0.0`. El workflow entrega el ZIP compilado y verifica el portal y `/api/health`. PostgreSQL y Key Vault forman parte de la migración del almacenamiento.
 
 [EP-04](epicas/CLP-4/CLP-4.mc) publica los resultados JUnit de CI y configura Dependabot para npm. Los PR de automatización pasan pruebas y revisión de dependencias. La configuración de Azure y su migración siguen pendientes.
+
+[Azure Pipelines](../azure-pipelines.yml) define una ejecución manual de CI con Node.js 22. Ejecuta la suite sintética, publica JUnit y comprueba la compilación, el portal y la API local del agente. El pipeline requiere un agente disponible en la organización.
